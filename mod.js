@@ -1,5 +1,13 @@
-import {join, resolve, dirname, fromFileUrl, toFileUrl, common, basename} from "https://deno.land/std@0.145.0/path/mod.ts";
-import {parseImportMap, resolveModuleSpecifier} from "https://deno.land/x/import_maps@v0.0.2/mod.js";
+import {
+	basename,
+	common,
+	dirname,
+	fromFileUrl,
+	join,
+	resolve,
+	toFileUrl,
+} from "https://deno.land/std@0.145.0/path/mod.ts";
+import { parseImportMap, resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.0.2/mod.js";
 import * as ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 
 /**
@@ -13,7 +21,7 @@ import * as ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * @param {string} path
  * @returns {AsyncIterable<Deno.DirEntry>}
  */
-async function *readFilesRecursive(path) {
+async function* readFilesRecursive(path) {
 	for await (const entry of Deno.readDir(path)) {
 		if (entry.isDirectory) {
 			yield* readFilesRecursive(join(path, entry.name));
@@ -38,13 +46,17 @@ async function parseFileAst(filePath, cbNode) {
 		allowJs: true,
 	}, {
 		fileExists: () => true,
-		getCanonicalFileName: filePath => filePath,
+		getCanonicalFileName: (filePath) => filePath,
 		getCurrentDirectory: () => "",
 		getDefaultLibFileName: () => "lib.d.ts",
 		getNewLine: () => "\n",
 		getSourceFile: (fileName) => {
 			if (fileName === vendorFileName) {
-				return ts.createSourceFile(fileName, fileContent, ts.ScriptTarget.Latest);
+				return ts.createSourceFile(
+					fileName,
+					fileContent,
+					ts.ScriptTarget.Latest,
+				);
 			}
 			return undefined;
 		},
@@ -84,8 +96,11 @@ export async function generateTypes({
 	outputDir = "./.denoTypes",
 	unstable = false,
 } = {}) {
-	const absoluteOutputDirPath = resolve(dirname(fromFileUrl(Deno.mainModule)), outputDir);
-	await Deno.mkdir(absoluteOutputDirPath, {recursive: true});
+	const absoluteOutputDirPath = resolve(
+		dirname(fromFileUrl(Deno.mainModule)),
+		outputDir,
+	);
+	await Deno.mkdir(absoluteOutputDirPath, { recursive: true });
 
 	// Add .gitignore
 	const gitIgnorePath = join(absoluteOutputDirPath, ".gitignore");
@@ -101,19 +116,22 @@ export async function generateTypes({
 	const typesBuffer = await getDenoTypesProcess.output();
 	const typesContent = new TextDecoder().decode(typesBuffer);
 	let lines = typesContent.split("\n");
-	lines = lines.filter(line => !line.startsWith("/// <reference"));
+	lines = lines.filter((line) => !line.startsWith("/// <reference"));
 	const newTypesContent = lines.join("\n");
 
 	const denoTypesDirPath = join(absoluteOutputDirPath, "@types");
 	const denoTypesDirPathFull = join(denoTypesDirPath, "deno-types");
-	await Deno.mkdir(denoTypesDirPathFull, {recursive: true});
+	await Deno.mkdir(denoTypesDirPathFull, { recursive: true });
 	const denoTypesFilePath = join(denoTypesDirPathFull, "index.d.ts");
 	await Deno.writeTextFile(denoTypesFilePath, newTypesContent);
 
 	/** @type {string[]} */
 	const vendorFiles = [];
 	for (const includePath of include) {
-		const absoluteIncludePath = resolve(dirname(fromFileUrl(Deno.mainModule)), includePath);
+		const absoluteIncludePath = resolve(
+			dirname(fromFileUrl(Deno.mainModule)),
+			includePath,
+		);
 		const fileInfo = await Deno.stat(absoluteIncludePath);
 		if (fileInfo.isDirectory) {
 			throw new Error("Not yet implemented");
@@ -126,14 +144,23 @@ export async function generateTypes({
 
 	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
 	const vendorProcess = Deno.run({
-		cmd: ["deno", "vendor", "--force", "--output", vendorOutputPath, ...vendorFiles],
+		cmd: [
+			"deno",
+			"vendor",
+			"--force",
+			"--output",
+			vendorOutputPath,
+			...vendorFiles,
+		],
 		stdout: "null",
 		stdin: "null",
 		stderr: "inherit",
 	});
 	const status = await vendorProcess.status();
 	if (!status.success) {
-		throw new Error(`Failed to vendor files. \`deno vendor\` exited with status ${status.code}`);
+		throw new Error(
+			`Failed to vendor files. \`deno vendor\` exited with status ${status.code}`,
+		);
 	}
 
 	/**
@@ -145,8 +172,10 @@ export async function generateTypes({
 	/** @type {ImportData[]} */
 	const allImports = [];
 	for (const vendorFile of vendorFiles) {
-		await parseFileAst(vendorFile, node => {
-			if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
+		await parseFileAst(vendorFile, (node) => {
+			if (
+				ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
+			) {
 				allImports.push({
 					importerFilePath: vendorFile,
 					importSpecifier: node.moduleSpecifier.text,
@@ -171,7 +200,11 @@ export async function generateTypes({
 			 */
 			function visit(node) {
 				// Rename .ts imports to .js
-				if (ts.isStringLiteral(node) && node.parent && (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent))) {
+				if (
+					ts.isStringLiteral(node) && node.parent &&
+					(ts.isImportDeclaration(node.parent) ||
+						ts.isExportDeclaration(node.parent))
+				) {
 					if (node.text.endsWith(".ts")) {
 						const importSpecifier = node.text.slice(0, -3) + ".js";
 						const created = ts.factory.createStringLiteral(importSpecifier);
@@ -183,14 +216,18 @@ export async function generateTypes({
 			}
 			const result = ts.visitNode(rootNode, visit);
 			return result;
-		}
-	}
+		};
+	};
 	for await (const entry of readFilesRecursive(vendorOutputPath)) {
 		const ast = await parseFileAst(entry.name);
 		if (!ast) continue;
 
 		const transformationResult = ts.transform(ast, [transformer]);
-		const modified = printer.printNode(ts.EmitHint.Unspecified, transformationResult.transformed[0], ast.getSourceFile());
+		const modified = printer.printNode(
+			ts.EmitHint.Unspecified,
+			transformationResult.transformed[0],
+			ast.getSourceFile(),
+		);
 		await Deno.writeTextFile(entry.name, modified);
 	}
 
@@ -206,7 +243,11 @@ export async function generateTypes({
 	const parsedImportMap = parseImportMap(importMapJson, baseUrl);
 	for (const importData of allImports) {
 		const apiBaseUrl = new URL(toFileUrl(importData.importerFilePath));
-		const resolvedModuleSpecifier = resolveModuleSpecifier(parsedImportMap, apiBaseUrl, importData.importSpecifier);
+		const resolvedModuleSpecifier = resolveModuleSpecifier(
+			parsedImportMap,
+			apiBaseUrl,
+			importData.importSpecifier,
+		);
 		const resolvedUrl = new URL(resolvedModuleSpecifier);
 
 		// If the resolved location doesn't point to something inside
@@ -226,11 +267,15 @@ export async function generateTypes({
 	for (const [url, path] of tsConfigPaths) {
 		tsConfigPathsObject[url] = [path];
 	}
-	const tsconfigContent = JSON.stringify({
-		compilerOptions: {
-			typeRoots: [denoTypesDirPath],
-			paths: tsConfigPathsObject,
+	const tsconfigContent = JSON.stringify(
+		{
+			compilerOptions: {
+				typeRoots: [denoTypesDirPath],
+				paths: tsConfigPathsObject,
+			},
 		},
-	}, null, 2);
+		null,
+		2,
+	);
 	await Deno.writeTextFile(tsconfigPath, tsconfigContent);
 }

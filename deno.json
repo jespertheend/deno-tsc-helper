@@ -1,0 +1,12 @@
+{
+	"fmt": {
+		"files": {
+			"exclude": [".denoTypes"]
+		},
+		"options": {
+			"useTabs": true,
+			"indentWidth": 4,
+			"lineWidth": 120
+		}
+	}
+}
