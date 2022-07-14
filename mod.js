@@ -8,7 +8,7 @@ import {
 	toFileUrl,
 } from "https://deno.land/std@0.145.0/path/mod.ts";
 import { parseImportMap, resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.0.2/mod.js";
-import * as ts from "https://esm.sh/typescript@4.7.4?pin=v87";
+import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 
 /**
  * @typedef GenerateTypesOptions
@@ -39,7 +39,7 @@ async function* readFilesRecursive(path) {
 async function parseFileAst(filePath, cbNode) {
 	const vendorFileName = basename(filePath);
 	const fileContent = await Deno.readTextFile(filePath);
-	const program = await ts.createProgram([vendorFileName], {
+	const program = ts.createProgram([vendorFileName], {
 		noResolve: true,
 		target: ts.ScriptTarget.Latest,
 		module: ts.ModuleKind.ESNext,
@@ -60,7 +60,7 @@ async function parseFileAst(filePath, cbNode) {
 			}
 			return undefined;
 		},
-		readFile: () => null,
+		readFile: () => undefined,
 		useCaseSensitiveFileNames: () => true,
 		writeFile: () => null,
 	});
