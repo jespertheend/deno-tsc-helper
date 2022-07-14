@@ -269,11 +269,14 @@ export async function generateTypes({
 		if (!ast) continue;
 
 		const transformationResult = ts.transform(ast, [transformer]);
-		const modified = printer.printNode(
+		let modified = printer.printNode(
 			ts.EmitHint.Unspecified,
 			transformationResult.transformed[0],
 			ast.getSourceFile(),
 		);
+		if (entry.name.endsWith(".js")) {
+			modified = "// @ts-nocheck\n" + modified;
+		}
 		await Deno.writeTextFile(entry.name, modified);
 	}
 
