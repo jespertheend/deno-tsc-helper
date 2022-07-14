@@ -2,8 +2,10 @@ import {
 	basename,
 	common,
 	dirname,
+	format,
 	fromFileUrl,
 	join,
+	parse,
 	resolve,
 	toFileUrl,
 } from "https://deno.land/std@0.145.0/path/mod.ts";
@@ -33,8 +35,13 @@ async function* readFilesRecursive(path) {
 }
 
 /**
+ * @typedef ParseFileAstExtra
+ * @property {ts.SourceFile} sourceFile
+ */
+
+/**
  * @param {string} filePath
- * @param {(node: ts.Node) => void} [cbNode]
+ * @param {(node: ts.Node, extra: ParseFileAstExtra) => void} [cbNode]
  */
 async function parseFileAst(filePath, cbNode) {
 	const vendorFileName = basename(filePath);
@@ -69,6 +76,7 @@ async function parseFileAst(filePath, cbNode) {
 
 	// TODO: Add a warning or maybe even throw?
 	if (!sourceFile) return null;
+	const sourceFile2 = sourceFile;
 
 	if (cbNode) {
 		const cb = cbNode;
@@ -76,7 +84,9 @@ async function parseFileAst(filePath, cbNode) {
 		 * @param {ts.Node} node
 		 */
 		function traverseAst(node) {
-			cb(node);
+			cb(node, {
+				sourceFile: sourceFile2,
+			});
 			ts.forEachChild(node, traverseAst);
 		}
 
@@ -185,9 +195,10 @@ export async function generateTypes({
 		});
 	}
 
-	// Modify the vendored files so that tsc can handle them.
-	const printer = ts.createPrinter();
 	/**
+	 * A transformer that replaces all imports ending with .ts with .js.
+	 * This is because, while Deno can import .ts files just fine, tsc cannot.
+	 * Simply replacing .ts with .js should be enought to make tsc stop complaining.
 	 * @param {ts.TransformationContext} context
 	 */
 	const transformer = (context) => {
@@ -219,8 +230,42 @@ export async function generateTypes({
 			return result;
 		};
 	};
+
+	/**
+	 * @typedef CollectedDtsFile
+	 * @property {string} dtsUrl The url containing types that should be fetched and placed at the `moduleSpecifier`.
+	 * @property {string} vendorFilePath The file that imported the `moduleSpecifier`.
+	 * @property {string} moduleSpecifier The module specifier that was imported for which the `dtsUrl` types should be fetched and placed at.
+	 */
+
+	/** @type {CollectedDtsFile[]} */
+	const collectedDtsFiles = [];
+
+	const denoTypesRegex = /\/\/\s*@deno-types\s*=\s*"(?<url>.*)"/;
+	const printer = ts.createPrinter();
 	for await (const entry of readFilesRecursive(vendorOutputPath)) {
-		const ast = await parseFileAst(entry.name);
+		const ast = await parseFileAst(entry.name, (node, { sourceFile }) => {
+			// Collect imports/exports with an deno-types comment
+			if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
+				const commentRanges = ts.getLeadingCommentRanges(sourceFile.text, node.pos);
+				if (commentRanges && commentRanges.length > 0) {
+					const lastRange = commentRanges.at(-1);
+					if (lastRange) {
+						const comment = sourceFile.text.substring(lastRange.pos, lastRange.end);
+						const match = denoTypesRegex.exec(comment);
+						if (match?.groups?.url) {
+							if (ts.isStringLiteral(node.moduleSpecifier)) {
+								collectedDtsFiles.push({
+									dtsUrl: match.groups.url,
+									vendorFilePath: entry.name,
+									moduleSpecifier: node.moduleSpecifier.text,
+								});
+							}
+						}
+					}
+				}
+			}
+		});
 		if (!ast) continue;
 
 		const transformationResult = ts.transform(ast, [transformer]);
@@ -236,12 +281,32 @@ export async function generateTypes({
 	const importMapPath = join(vendorOutputPath, "import_map.json");
 	const importMapText = await Deno.readTextFile(importMapPath);
 	const importMapJson = JSON.parse(importMapText);
+	const importMapBaseUrl = new URL(toFileUrl(importMapPath));
+	const parsedImportMap = parseImportMap(importMapJson, importMapBaseUrl);
+
+	const dtsFetchPromises = [];
+	for (const { dtsUrl, vendorFilePath, moduleSpecifier } of collectedDtsFiles) {
+		const promise = (async () => {
+			const response = await fetch(dtsUrl);
+			const text = await response.text();
+			const baseUrl = new URL(toFileUrl(vendorFilePath));
+			const dtsDestination = resolveModuleSpecifier(parsedImportMap, baseUrl, moduleSpecifier);
+			const parsedDestination = parse(fromFileUrl(dtsDestination));
+			const dtsDestinationPath = format({
+				dir: parsedDestination.dir,
+				name: parsedDestination.name,
+				root: parsedDestination.root,
+				ext: ".d.ts",
+			});
+			await Deno.writeTextFile(dtsDestinationPath, text);
+		})();
+		dtsFetchPromises.push(promise);
+	}
+	await Promise.allSettled(dtsFetchPromises);
 
 	/** @type {[string, string][]} */
 	const tsConfigPaths = [];
 
-	const baseUrl = new URL(toFileUrl(importMapPath));
-	const parsedImportMap = parseImportMap(importMapJson, baseUrl);
 	for (const importData of allImports) {
 		const apiBaseUrl = new URL(toFileUrl(importData.importerFilePath));
 		const resolvedModuleSpecifier = resolveModuleSpecifier(
