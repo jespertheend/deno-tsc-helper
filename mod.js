@@ -148,6 +148,7 @@ export async function generateTypes({
 			"deno",
 			"vendor",
 			"--force",
+			"--no-config",
 			"--output",
 			vendorOutputPath,
 			...vendorFiles,
