@@ -10,18 +10,68 @@ import * as ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  */
 
 /**
- * @param {string | URL} path
+ * @param {string} path
  * @returns {AsyncIterable<Deno.DirEntry>}
  */
-async function *readDirRecursive(path) {
+async function *readFilesRecursive(path) {
 	for await (const entry of Deno.readDir(path)) {
 		if (entry.isDirectory) {
-			yield* readDirRecursive(join(path, entry.name));
+			yield* readFilesRecursive(join(path, entry.name));
 		} else {
 			entry.name = join(path, entry.name);
 			yield entry;
 		}
 	}
+}
+
+/**
+ * @param {string} filePath
+ * @param {(node: ts.Node) => void} [cbNode]
+ */
+async function parseFileAst(filePath, cbNode) {
+	const vendorFileName = basename(filePath);
+	const fileContent = await Deno.readTextFile(filePath);
+	const program = await ts.createProgram([vendorFileName], {
+		noResolve: true,
+		target: ts.ScriptTarget.Latest,
+		module: ts.ModuleKind.ESNext,
+		allowJs: true,
+	}, {
+		fileExists: () => true,
+		getCanonicalFileName: filePath => filePath,
+		getCurrentDirectory: () => "",
+		getDefaultLibFileName: () => "lib.d.ts",
+		getNewLine: () => "\n",
+		getSourceFile: (fileName) => {
+			if (fileName === vendorFileName) {
+				return ts.createSourceFile(fileName, fileContent, ts.ScriptTarget.Latest);
+			}
+			return undefined;
+		},
+		readFile: () => null,
+		useCaseSensitiveFileNames: () => true,
+		writeFile: () => null,
+	});
+
+	const sourceFile = program.getSourceFile(vendorFileName);
+
+	// TODO: Add a warning or maybe even throw?
+	if (!sourceFile) return null;
+
+	if (cbNode) {
+		const cb = cbNode;
+		/**
+		 * @param {ts.Node} node
+		 */
+		function traverseAst(node) {
+			cb(node);
+			ts.forEachChild(node, traverseAst);
+		}
+
+		traverseAst(sourceFile);
+	}
+
+	return sourceFile;
 }
 
 /**
@@ -74,9 +124,9 @@ export async function generateTypes({
 		}
 	}
 
-	const vendorOutput = resolve(absoluteOutputDirPath, "vendor");
+	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
 	const vendorProcess = Deno.run({
-		cmd: ["deno", "vendor", "--force", "--output", vendorOutput, ...vendorFiles],
+		cmd: ["deno", "vendor", "--force", "--output", vendorOutputPath, ...vendorFiles],
 		stdout: "null",
 		stdin: "null",
 		stderr: "inherit",
@@ -95,50 +145,57 @@ export async function generateTypes({
 	/** @type {ImportData[]} */
 	const allImports = [];
 	for (const vendorFile of vendorFiles) {
-		const vendorFileName = basename(vendorFile);
-		const fileContent = await Deno.readTextFile(vendorFile);
-		const program = await ts.createProgram([vendorFileName], {
-			noResolve: true,
-			target: ts.ScriptTarget.Latest,
-			module: ts.ModuleKind.ESNext,
-			allowJs: true,
-		}, {
-			fileExists: () => true,
-			getCanonicalFileName: filePath => filePath,
-			getCurrentDirectory: () => "",
-			getDefaultLibFileName: () => "lib.d.ts",
-			getNewLine: () => "\n",
-			getSourceFile: (fileName) => {
-				if (fileName === vendorFileName) {
-					return ts.createSourceFile(fileName, fileContent, ts.ScriptTarget.Latest);
-				}
-				return undefined;
-			},
-			readFile: () => null,
-			useCaseSensitiveFileNames: () => true,
-			writeFile: () => null,
-		});
-
-		const sourceFile = program.getSourceFile(vendorFileName);
-
-		// TODO: Add a warning or maybe even throw?
-		if (!sourceFile) continue;
-
-		function traverseAst(node) {
-			if (node.kind == ts.SyntaxKind.ImportDeclaration) {
+		await parseFileAst(vendorFile, node => {
+			if (ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)) {
 				allImports.push({
 					importerFilePath: vendorFile,
 					importSpecifier: node.moduleSpecifier.text,
 				});
 			}
-			ts.forEachChild(node, traverseAst);
-		}
+		});
+	}
 
-		traverseAst(sourceFile);
+	// Modify the vendored files so that tsc can handle them.
+	const printer = ts.createPrinter();
+	/**
+	 * @param {ts.TransformationContext} context
+	 */
+	const transformer = (context) => {
+		/**
+		 * @param {ts.Node} rootNode
+		 */
+		return (rootNode) => {
+			/**
+			 * @param {ts.Node} node
+			 * @returns {ts.Node}
+			 */
+			function visit(node) {
+				// Rename .ts imports to .js
+				if (ts.isStringLiteral(node) && node.parent && (ts.isImportDeclaration(node.parent) || ts.isExportDeclaration(node.parent))) {
+					if (node.text.endsWith(".ts")) {
+						const importSpecifier = node.text.slice(0, -3) + ".js";
+						const created = ts.factory.createStringLiteral(importSpecifier);
+						return created;
+					}
+				}
+
+				return ts.visitEachChild(node, visit, context);
+			}
+			const result = ts.visitNode(rootNode, visit);
+			return result;
+		}
+	}
+	for await (const entry of readFilesRecursive(vendorOutputPath)) {
+		const ast = await parseFileAst(entry.name);
+		if (!ast) continue;
+
+		const transformationResult = ts.transform(ast, [transformer]);
+		const modified = printer.printNode(ts.EmitHint.Unspecified, transformationResult.transformed[0], ast.getSourceFile());
+		await Deno.writeTextFile(entry.name, modified);
 	}
 
 	// Read the generated import map
-	const importMapPath = join(vendorOutput, "import_map.json");
+	const importMapPath = join(vendorOutputPath, "import_map.json");
 	const importMapText = await Deno.readTextFile(importMapPath);
 	const importMapJson = JSON.parse(importMapText);
 
