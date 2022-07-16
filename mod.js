@@ -19,8 +19,8 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * types will be fetched and added to the generated tsconfig.json.
  * @property {string[]} [excludeUrls] A list of urls to ignore when fetching types.
  * If a specific import specifier is causing issues, you can add its exact url to this list.
- * Imports containing this url will still be added to the generated tsconfig.json, but
- * they will point to a dummy module that contains no types.
+ * An [ambient module](https://www.typescriptlang.org/docs/handbook/modules.html#shorthand-ambient-modules)
+ * will be created that contains no types for each of these.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
  */
@@ -136,10 +136,10 @@ export async function generateTypes({
 	lines = lines.filter((line) => !line.startsWith("/// <reference"));
 	const newTypesContent = lines.join("\n");
 
-	const denoTypesDirPath = join(absoluteOutputDirPath, "@types");
-	const denoTypesDirPathFull = join(denoTypesDirPath, "deno-types");
-	await Deno.mkdir(denoTypesDirPathFull, { recursive: true });
-	const denoTypesFilePath = join(denoTypesDirPathFull, "index.d.ts");
+	const typeRootsDirPath = join(absoluteOutputDirPath, "@types");
+	const denoTypesDirPath = join(typeRootsDirPath, "deno-types");
+	await Deno.mkdir(denoTypesDirPath, { recursive: true });
+	const denoTypesFilePath = join(denoTypesDirPath, "index.d.ts");
 	await Deno.writeTextFile(denoTypesFilePath, newTypesContent);
 
 	/**
@@ -192,10 +192,16 @@ export async function generateTypes({
 	/** @type {import("https://deno.land/x/import_maps@v0.0.2/mod.js").ParsedImportMap[]} */
 	const parsedImportMaps = [];
 
+	/** @type {Set<string>} */
+	const needsDummyImportSpecifiers = new Set();
+
 	for (const { importSpecifier } of allImports) {
 		// TODO: Use a better way to detect if an import specifier is a remote url.
 		if (!importSpecifier.startsWith("https://")) continue;
-		if (excludeUrls.includes(importSpecifier)) continue;
+		if (excludeUrls.includes(importSpecifier)) {
+			needsDummyImportSpecifiers.add(importSpecifier);
+			continue;
+		}
 
 		const cmd = ["deno", "vendor", "--force", "--no-config"];
 		cmd.push("--output", vendorOutputPath);
@@ -366,6 +372,19 @@ ${errorString}`,
 	 */
 	const tsConfigPaths = [];
 
+	if (needsDummyImportSpecifiers.size > 0) {
+		const ambientModulesDirPath = resolve(typeRootsDirPath, "deno-tsc-helper-ambient-modules");
+		await Deno.mkdir(ambientModulesDirPath, { recursive: true });
+		const ambientModulesFilePath = resolve(ambientModulesDirPath, "index.d.ts");
+
+		let ambientModulesContent = "";
+		for (const specifier of needsDummyImportSpecifiers) {
+			ambientModulesContent += `declare module "${specifier}";\n`;
+		}
+
+		await Deno.writeTextFile(ambientModulesFilePath, ambientModulesContent);
+	}
+
 	for (const importData of allImports) {
 		const apiBaseUrl = new URL(toFileUrl(importData.importerFilePath));
 		const resolvedModuleSpecifier = resolveModuleSpecifierAll(
@@ -376,6 +395,8 @@ ${errorString}`,
 		// If the resolved location doesn't point to something inside
 		// the .denoTypes directory, we don't need to do anything.
 		if (!resolvedModuleSpecifier) continue;
+
+		if (needsDummyImportSpecifiers.has(importData.importSpecifier)) continue;
 
 		tsConfigPaths.push([importData.importSpecifier, resolvedModuleSpecifier.pathname]);
 	}
@@ -390,7 +411,7 @@ ${errorString}`,
 	const tsconfigContent = JSON.stringify(
 		{
 			compilerOptions: {
-				typeRoots: [denoTypesDirPath],
+				typeRoots: [typeRootsDirPath],
 				paths: tsConfigPathsObject,
 			},
 		},
