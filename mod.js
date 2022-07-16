@@ -37,7 +37,7 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * not be included in the results. If false is returned for a directory, all of its files
  * will be excluded from the results. You can use this to prevent recursing large
  * directories that you know you won't need anyway.
- * @returns {AsyncIterable<Deno.DirEntry>}
+ * @returns {AsyncIterable<string>}
  */
 async function* readDirRecursive(path, filter) {
 	for await (const entry of Deno.readDir(path)) {
@@ -45,8 +45,7 @@ async function* readDirRecursive(path, filter) {
 		if (entry.isDirectory) {
 			yield* readDirRecursive(join(path, entry.name));
 		} else {
-			entry.name = join(path, entry.name);
-			yield entry;
+			yield resolve(path, entry.name);
 		}
 	}
 }
@@ -171,9 +170,9 @@ export async function generateTypes({
 				if (exclude.includes(entry.name)) return false;
 				return true;
 			};
-			for await (const entry of readDirRecursive(includePath, filter)) {
-				if (entry.name.endsWith(".js") || entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) {
-					userFiles.push(entry.name);
+			for await (const filePath of readDirRecursive(includePath, filter)) {
+				if (filePath.endsWith(".js") || filePath.endsWith(".ts") || filePath.endsWith(".d.ts")) {
+					userFiles.push(filePath);
 				}
 			}
 		} else {
@@ -392,8 +391,8 @@ ${errorString}`,
 
 	const denoTypesRegex = /\/\/\s*@deno-types\s*=\s*"(?<url>.*)"/;
 	const printer = ts.createPrinter();
-	for await (const entry of readDirRecursive(vendorOutputPath)) {
-		const ast = await parseFileAst(entry.name, (node, { sourceFile }) => {
+	for await (const filePath of readDirRecursive(vendorOutputPath)) {
+		const ast = await parseFileAst(filePath, (node, { sourceFile }) => {
 			// Collect imports/exports with an deno-types comment
 			if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
 				const commentRanges = ts.getLeadingCommentRanges(sourceFile.text, node.pos);
@@ -406,7 +405,7 @@ ${errorString}`,
 							if (ts.isStringLiteral(node.moduleSpecifier)) {
 								collectedDtsFiles.push({
 									dtsUrl: match.groups.url,
-									vendorFilePath: entry.name,
+									vendorFilePath: filePath,
 									moduleSpecifier: node.moduleSpecifier.text,
 								});
 							}
@@ -423,10 +422,10 @@ ${errorString}`,
 			transformationResult.transformed[0],
 			ast.getSourceFile(),
 		);
-		if (entry.name.endsWith(".js")) {
+		if (filePath.endsWith(".js")) {
 			modified = "// @ts-nocheck\n" + modified;
 		}
-		await Deno.writeTextFile(entry.name, modified);
+		await Deno.writeTextFile(filePath, modified);
 	}
 
 	const dtsFetchPromises = [];
