@@ -50,9 +50,8 @@ async function* readFilesRecursive(path) {
  * @param {(node: ts.Node, extra: ParseFileAstExtra) => void} [cbNode]
  */
 async function parseFileAst(filePath, cbNode) {
-	const vendorFileName = basename(filePath);
 	const fileContent = await Deno.readTextFile(filePath);
-	const program = ts.createProgram([vendorFileName], {
+	const program = ts.createProgram([filePath], {
 		noResolve: true,
 		target: ts.ScriptTarget.Latest,
 		module: ts.ModuleKind.ESNext,
@@ -64,7 +63,7 @@ async function parseFileAst(filePath, cbNode) {
 		getDefaultLibFileName: () => "lib.d.ts",
 		getNewLine: () => "\n",
 		getSourceFile: (fileName) => {
-			if (fileName === vendorFileName) {
+			if (fileName === filePath) {
 				return ts.createSourceFile(
 					fileName,
 					fileContent,
@@ -78,7 +77,7 @@ async function parseFileAst(filePath, cbNode) {
 		writeFile: () => null,
 	});
 
-	const sourceFile = program.getSourceFile(vendorFileName);
+	const sourceFile = program.getSourceFile(filePath);
 
 	// TODO: Add a warning or maybe even throw?
 	if (!sourceFile) return null;
@@ -238,9 +237,29 @@ ${errorString}`,
 	}
 
 	/**
-	 * A transformer that replaces all imports ending with .ts with .js.
-	 * This is because, while Deno can import .ts files just fine, tsc cannot.
-	 * Simply replacing .ts with .js should be enought to make tsc stop complaining.
+	 * Loops over all the parsed import maps and returns the resolved specifier
+	 * for the first occurrence that resolves to a file location inside the
+	 * vendor directory. Returns `null` if no import map resolves to a file
+	 * inside the vendor directory.
+	 * @param {URL} baseUrl
+	 * @param {string} moduleSpecifier
+	 */
+	function resolveModuleSpecifierAll(baseUrl, moduleSpecifier) {
+		for (const importMap of parsedImportMaps) {
+			const resolved = resolveModuleSpecifier(importMap, baseUrl, moduleSpecifier);
+			if (resolved.protocol !== "file:") continue;
+			const commonPath = resolve(common([resolved.pathname, absoluteOutputDirPath]));
+			if (commonPath != absoluteOutputDirPath) continue;
+
+			return resolved;
+		}
+		return null;
+	}
+
+	/**
+	 * A transformer that does several things to fix up the vendored files:
+	 * - rewrites all external imports to other vendored files using the import maps.
+	 * - Renames imports from .ts to .js since TypeScript doesn't allow .ts imports.
 	 * @param {ts.TransformationContext} context
 	 */
 	const transformer = (context) => {
@@ -256,13 +275,25 @@ ${errorString}`,
 				// Rename .ts imports to .js
 				if (
 					ts.isStringLiteral(node) && node.parent &&
-					(ts.isImportDeclaration(node.parent) ||
-						ts.isExportDeclaration(node.parent))
+					(
+						ts.isImportDeclaration(node.parent) ||
+						ts.isExportDeclaration(node.parent)
+					)
 				) {
-					if (node.text.endsWith(".ts")) {
-						const importSpecifier = node.text.slice(0, -3) + ".js";
-						const created = ts.factory.createStringLiteral(importSpecifier);
-						return created;
+					let newSpecifier = null;
+					if (ts.isSourceFile(rootNode)) {
+						const baseUrl = new URL(toFileUrl(rootNode.fileName));
+						const oldSpecifier = node.text;
+						const resolvedUrl = resolveModuleSpecifierAll(baseUrl, oldSpecifier);
+						if (resolvedUrl) {
+							newSpecifier = resolvedUrl.pathname;
+						}
+						if (newSpecifier && newSpecifier.endsWith(".ts")) {
+							newSpecifier = newSpecifier.slice(0, -3) + ".js";
+						}
+						if (newSpecifier) {
+							return ts.factory.createStringLiteral(newSpecifier);
+						}
 					}
 				}
 
@@ -320,26 +351,6 @@ ${errorString}`,
 			modified = "// @ts-nocheck\n" + modified;
 		}
 		await Deno.writeTextFile(entry.name, modified);
-	}
-
-	/**
-	 * Loops over all the parsed import maps and returns the resolved specifier
-	 * for the first occurrence that resolves to a file location inside the
-	 * vendor directory. Returns `null` if no import map resolves to a file
-	 * inside the vendor directory.
-	 * @param {URL} baseUrl
-	 * @param {string} moduleSpecifier
-	 */
-	function resolveModuleSpecifierAll(baseUrl, moduleSpecifier) {
-		for (const importMap of parsedImportMaps) {
-			const resolved = resolveModuleSpecifier(importMap, baseUrl, moduleSpecifier);
-			if (resolved.protocol !== "file:") continue;
-			const commonPath = resolve(common([resolved.pathname, absoluteOutputDirPath]));
-			if (commonPath != absoluteOutputDirPath) continue;
-
-			return resolved;
-		}
-		return null;
 	}
 
 	const dtsFetchPromises = [];
