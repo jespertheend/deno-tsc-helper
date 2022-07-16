@@ -16,6 +16,8 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * @property {string[]} [include] A list of local paths to parse the imports from.
  * Any import statement found in any of these .ts or .js files will be collected and their
  * types will be fetched and added to the generated tsconfig.json.
+ * @property {string[]} [exclude] A list of local paths to exclude. Any file in this list
+ * will not be parsed. This defaults to [".denoTypes", "node_modules"].
  * @property {string[]} [excludeUrls] A list of urls to ignore when fetching types.
  * If a specific import specifier is causing issues, you can add its exact url to this list.
  * An [ambient module](https://www.typescriptlang.org/docs/handbook/modules.html#shorthand-ambient-modules)
@@ -24,14 +26,24 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
  */
 
+/** @typedef {(entry: Deno.DirEntry) => boolean} ReadDirRecursiveFilter */
+
 /**
+ * Reads all directives recursively and yields all files.
+ * Directories are not included.
  * @param {string} path
+ * @param {ReadDirRecursiveFilter} [filter] A filter function that you can use
+ * to filter out certain files from the result. If the filter returns false, the file will
+ * not be included in the results. If false is returned for a directory, all of its files
+ * will be excluded from the results. You can use this to prevent recursing large
+ * directories that you know you won't need anyway.
  * @returns {AsyncIterable<Deno.DirEntry>}
  */
-async function* readFilesRecursive(path) {
+async function* readDirRecursive(path, filter) {
 	for await (const entry of Deno.readDir(path)) {
+		if (filter && !filter(entry)) continue;
 		if (entry.isDirectory) {
-			yield* readFilesRecursive(join(path, entry.name));
+			yield* readDirRecursive(join(path, entry.name));
 		} else {
 			entry.name = join(path, entry.name);
 			yield entry;
@@ -107,6 +119,7 @@ async function parseFileAst(filePath, cbNode) {
  */
 export async function generateTypes({
 	include = ["."],
+	exclude = [".denoTypes", "node_modules"],
 	excludeUrls = [],
 	outputDir = "./.denoTypes",
 	unstable = false,
@@ -153,9 +166,16 @@ export async function generateTypes({
 		);
 		const fileInfo = await Deno.stat(absoluteIncludePath);
 		if (fileInfo.isDirectory) {
-			throw new Error("Not yet implemented");
-			// for await (const entry of readDirRecursive(includePath)) {
-			// }
+			/** @type {ReadDirRecursiveFilter} */
+			const filter = (entry) => {
+				if (exclude.includes(entry.name)) return false;
+				return true;
+			};
+			for await (const entry of readDirRecursive(includePath, filter)) {
+				if (entry.name.endsWith(".js") || entry.name.endsWith(".ts") || entry.name.endsWith(".d.ts")) {
+					userFiles.push(entry.name);
+				}
+			}
 		} else {
 			userFiles.push(absoluteIncludePath);
 		}
@@ -172,13 +192,13 @@ export async function generateTypes({
 	let cacheExists = true;
 	try {
 		await Deno.stat(cacheFilePath);
-	  } catch(e) {
-		if(e instanceof Deno.errors.NotFound) {
+	} catch (e) {
+		if (e instanceof Deno.errors.NotFound) {
 			cacheExists = false;
 		} else {
 			throw e;
 		}
-	  }
+	}
 	if (cacheExists) {
 		const cacheStr = await Deno.readTextFile(cacheFilePath);
 		cache = JSON.parse(cacheStr);
@@ -221,13 +241,13 @@ export async function generateTypes({
 
 	/** @type {Set<string>} */
 	const needsDummyImportSpecifiers = new Set();
-	for (const {importSpecifier} of allImports) {
+	for (const { importSpecifier } of allImports) {
 		if (excludeUrls.includes(importSpecifier)) {
 			needsDummyImportSpecifiers.add(importSpecifier);
 		}
 	}
 	// TODO: Use a better way to detect if an import specifier is a remote url.
-	const remoteImports = allImports.filter(importData => {
+	const remoteImports = allImports.filter((importData) => {
 		if (excludeUrls.includes(importData.importSpecifier)) return false;
 
 		if (importData.importSpecifier.startsWith("http://") || importData.importSpecifier.startsWith("https://")) {
@@ -239,7 +259,7 @@ export async function generateTypes({
 
 	{
 		let allCached = true;
-		for (const {importSpecifier} of remoteImports) {
+		for (const { importSpecifier } of remoteImports) {
 			if (!cachedImportSpecifiers.has(importSpecifier)) {
 				allCached = false;
 				break;
@@ -372,7 +392,7 @@ ${errorString}`,
 
 	const denoTypesRegex = /\/\/\s*@deno-types\s*=\s*"(?<url>.*)"/;
 	const printer = ts.createPrinter();
-	for await (const entry of readFilesRecursive(vendorOutputPath)) {
+	for await (const entry of readDirRecursive(vendorOutputPath)) {
 		const ast = await parseFileAst(entry.name, (node, { sourceFile }) => {
 			// Collect imports/exports with an deno-types comment
 			if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
@@ -491,8 +511,8 @@ ${errorString}`,
 	{
 		/** @type {CacheFileData} */
 		const cacheData = {
-			vendoredImports: remoteImports.map(i => i.importSpecifier),
-		}
+			vendoredImports: remoteImports.map((i) => i.importSpecifier),
+		};
 		const cacheDataStr = JSON.stringify(cacheData, null, "\t");
 		await Deno.writeTextFile(cacheFilePath, cacheDataStr);
 	}
