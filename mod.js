@@ -14,7 +14,13 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 
 /**
  * @typedef GenerateTypesOptions
- * @property {string[]} [include] A list of urls to fetch types from.
+ * @property {string[]} [include] A list of local paths to parse the imports from.
+ * Any import statement found in any of these .ts or .js files will be collected and their
+ * types will be fetched and added to the generated tsconfig.json.
+ * @property {string[]} [excludeUrls] A list of urls to ignore when fetching types.
+ * If a specific import specifier is causing issues, you can add its exact url to this list.
+ * Imports containing this url will still be added to the generated tsconfig.json, but
+ * they will point to a dummy module that contains no types.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
  */
@@ -103,6 +109,7 @@ async function parseFileAst(filePath, cbNode) {
  */
 export async function generateTypes({
 	include = ["."],
+	excludeUrls = [],
 	outputDir = "./.denoTypes",
 	unstable = false,
 } = {}) {
@@ -135,8 +142,12 @@ export async function generateTypes({
 	const denoTypesFilePath = join(denoTypesDirPathFull, "index.d.ts");
 	await Deno.writeTextFile(denoTypesFilePath, newTypesContent);
 
-	/** @type {string[]} */
-	const vendorFiles = [];
+	/**
+	 * A list of absolute paths pointing to all .js and .ts files that the user
+	 * wishes to parse and detect imports from.
+	 * @type {string[]}
+	 */
+	const userFiles = [];
 	for (const includePath of include) {
 		const absoluteIncludePath = resolve(
 			dirname(fromFileUrl(Deno.mainModule)),
@@ -148,30 +159,8 @@ export async function generateTypes({
 			// for await (const entry of readDirRecursive(includePath)) {
 			// }
 		} else {
-			vendorFiles.push(absoluteIncludePath);
+			userFiles.push(absoluteIncludePath);
 		}
-	}
-
-	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
-	const vendorProcess = Deno.run({
-		cmd: [
-			"deno",
-			"vendor",
-			"--force",
-			"--no-config",
-			"--output",
-			vendorOutputPath,
-			...vendorFiles,
-		],
-		stdout: "null",
-		stdin: "null",
-		stderr: "inherit",
-	});
-	const status = await vendorProcess.status();
-	if (!status.success) {
-		throw new Error(
-			`Failed to vendor files. \`deno vendor\` exited with status ${status.code}`,
-		);
 	}
 
 	/**
@@ -180,19 +169,66 @@ export async function generateTypes({
 	 * @property {string} importSpecifier
 	 */
 
-	/** @type {ImportData[]} */
+	/**
+	 * List of imports found in the user files.
+	 * @type {ImportData[]}
+	 */
 	const allImports = [];
-	for (const vendorFile of vendorFiles) {
-		await parseFileAst(vendorFile, (node) => {
+	for (const userFile of userFiles) {
+		await parseFileAst(userFile, (node) => {
 			if (
 				ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
 			) {
 				allImports.push({
-					importerFilePath: vendorFile,
+					importerFilePath: userFile,
 					importSpecifier: node.moduleSpecifier.text,
 				});
 			}
 		});
+	}
+
+	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
+	const importMapPath = join(vendorOutputPath, "import_map.json");
+	/** @type {import("https://deno.land/x/import_maps@v0.0.2/mod.js").ParsedImportMap[]} */
+	const parsedImportMaps = [];
+
+	for (const { importSpecifier } of allImports) {
+		// TODO: Use a better way to detect if an import specifier is a remote url.
+		if (!importSpecifier.startsWith("https://")) continue;
+		if (excludeUrls.includes(importSpecifier)) continue;
+
+		const cmd = ["deno", "vendor", "--force", "--no-config"];
+		cmd.push("--output", vendorOutputPath);
+		cmd.push(importSpecifier);
+		const vendorProcess = Deno.run({
+			cmd,
+			stdout: "null",
+			stdin: "null",
+			stderr: "piped",
+		});
+		const status = await vendorProcess.status();
+		if (!status.success) {
+			const rawError = await vendorProcess.stderrOutput();
+			const errorString = new TextDecoder().decode(rawError);
+			throw new Error(
+				`Failed to vendor files for ${importSpecifier}. \`deno vendor\` exited with status ${status.code}.
+Consider adding "${importSpecifier}" to \`excludeUrls\` to skip this import.
+
+The error occurred while running:
+${cmd.join(" ")}
+The command resulted in the following error:
+${errorString}`,
+			);
+		}
+
+		// Since we're calling `deno vendor` with `--force`, the generated import map
+		// will be overwritten every time we run `deno vendor`.
+		// So we'll parse it now and store the result for later.
+		const importMapText = await Deno.readTextFile(importMapPath);
+		const importMapJson = JSON.parse(importMapText);
+		const importMapBaseUrl = new URL(toFileUrl(importMapPath));
+		const parsedImportMap = parseImportMap(importMapJson, importMapBaseUrl);
+		parsedImportMaps.push(parsedImportMap);
 	}
 
 	/**
@@ -280,12 +316,25 @@ export async function generateTypes({
 		await Deno.writeTextFile(entry.name, modified);
 	}
 
-	// Read the generated import map
-	const importMapPath = join(vendorOutputPath, "import_map.json");
-	const importMapText = await Deno.readTextFile(importMapPath);
-	const importMapJson = JSON.parse(importMapText);
-	const importMapBaseUrl = new URL(toFileUrl(importMapPath));
-	const parsedImportMap = parseImportMap(importMapJson, importMapBaseUrl);
+	/**
+	 * Loops over all the parsed import maps and returns the resolved specifier
+	 * for the first occurrence that resolves to a file location inside the
+	 * vendor directory. Returns `null` if no import map resolves to a file
+	 * inside the vendor directory.
+	 * @param {URL} baseUrl
+	 * @param {string} moduleSpecifier
+	 */
+	function resolveModuleSpecifierAll(baseUrl, moduleSpecifier) {
+		for (const importMap of parsedImportMaps) {
+			const resolved = resolveModuleSpecifier(importMap, baseUrl, moduleSpecifier);
+			if (resolved.protocol !== "file:") continue;
+			const commonPath = resolve(common([resolved.pathname, absoluteOutputDirPath]));
+			if (commonPath != absoluteOutputDirPath) continue;
+
+			return resolved;
+		}
+		return null;
+	}
 
 	const dtsFetchPromises = [];
 	for (const { dtsUrl, vendorFilePath, moduleSpecifier } of collectedDtsFiles) {
@@ -293,7 +342,11 @@ export async function generateTypes({
 			const response = await fetch(dtsUrl);
 			const text = await response.text();
 			const baseUrl = new URL(toFileUrl(vendorFilePath));
-			const dtsDestination = resolveModuleSpecifier(parsedImportMap, baseUrl, moduleSpecifier);
+			const dtsDestination = resolveModuleSpecifierAll(baseUrl, moduleSpecifier);
+			if (!dtsDestination) {
+				// TODO: Show a warning
+				return;
+			}
 			const parsedDestination = parse(fromFileUrl(dtsDestination));
 			const dtsDestinationPath = format({
 				dir: parsedDestination.dir,
@@ -307,26 +360,24 @@ export async function generateTypes({
 	}
 	await Promise.allSettled(dtsFetchPromises);
 
-	/** @type {[string, string][]} */
+	/**
+	 * A list of paths that should be added to the generated tsconfig.json.
+	 * @type {[string, string][]}
+	 */
 	const tsConfigPaths = [];
 
 	for (const importData of allImports) {
 		const apiBaseUrl = new URL(toFileUrl(importData.importerFilePath));
-		const resolvedModuleSpecifier = resolveModuleSpecifier(
-			parsedImportMap,
+		const resolvedModuleSpecifier = resolveModuleSpecifierAll(
 			apiBaseUrl,
 			importData.importSpecifier,
 		);
-		const resolvedUrl = new URL(resolvedModuleSpecifier);
 
 		// If the resolved location doesn't point to something inside
 		// the .denoTypes directory, we don't need to do anything.
-		if (resolvedUrl.protocol !== "file:") continue;
-		const resolvedPath = resolvedUrl.pathname;
-		const commonPath = resolve(common([resolvedPath, absoluteOutputDirPath]));
-		if (commonPath != absoluteOutputDirPath) continue;
+		if (!resolvedModuleSpecifier) continue;
 
-		tsConfigPaths.push([importData.importSpecifier, resolvedPath]);
+		tsConfigPaths.push([importData.importSpecifier, resolvedModuleSpecifier.pathname]);
 	}
 
 	// Add tsconfig.json
