@@ -1,5 +1,4 @@
 import {
-	basename,
 	common,
 	dirname,
 	format,
@@ -163,6 +162,40 @@ export async function generateTypes({
 	}
 
 	/**
+	 * @typedef CacheFileData
+	 * @property {string[]} vendoredImports
+	 */
+
+	const cacheFilePath = resolve(absoluteOutputDirPath, "cache.json");
+	/** @type {CacheFileData?} */
+	let cache = null;
+	let cacheExists = true;
+	try {
+		await Deno.stat(cacheFilePath);
+	  } catch(e) {
+		if(e instanceof Deno.errors.NotFound) {
+			cacheExists = false;
+		} else {
+			throw e;
+		}
+	  }
+	if (cacheExists) {
+		const cacheStr = await Deno.readTextFile(cacheFilePath);
+		cache = JSON.parse(cacheStr);
+	}
+
+	/**
+	 * A list of import specifier that were vendored the last time the script was run.
+	 * @type {Set<string>}
+	 */
+	const cachedImportSpecifiers = new Set();
+	if (cache) {
+		for (const importSpecifier of cache.vendoredImports) {
+			cachedImportSpecifiers.add(importSpecifier);
+		}
+	}
+
+	/**
 	 * @typedef ImportData
 	 * @property {string} importerFilePath
 	 * @property {string} importSpecifier
@@ -186,22 +219,45 @@ export async function generateTypes({
 		});
 	}
 
+	/** @type {Set<string>} */
+	const needsDummyImportSpecifiers = new Set();
+	for (const {importSpecifier} of allImports) {
+		if (excludeUrls.includes(importSpecifier)) {
+			needsDummyImportSpecifiers.add(importSpecifier);
+		}
+	}
+	// TODO: Use a better way to detect if an import specifier is a remote url.
+	const remoteImports = allImports.filter(importData => {
+		if (excludeUrls.includes(importData.importSpecifier)) return false;
+
+		if (importData.importSpecifier.startsWith("http://") || importData.importSpecifier.startsWith("https://")) {
+			return true;
+		}
+
+		return false;
+	});
+
+	{
+		let allCached = true;
+		for (const {importSpecifier} of remoteImports) {
+			if (!cachedImportSpecifiers.has(importSpecifier)) {
+				allCached = false;
+				break;
+			}
+		}
+
+		// If all imports are already cached, we don't need to do anything.
+		if (allCached) {
+			return;
+		}
+	}
+
 	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
 	const importMapPath = join(vendorOutputPath, "import_map.json");
 	/** @type {import("https://deno.land/x/import_maps@v0.0.2/mod.js").ParsedImportMap[]} */
 	const parsedImportMaps = [];
 
-	/** @type {Set<string>} */
-	const needsDummyImportSpecifiers = new Set();
-
-	for (const { importSpecifier } of allImports) {
-		// TODO: Use a better way to detect if an import specifier is a remote url.
-		if (!importSpecifier.startsWith("https://")) continue;
-		if (excludeUrls.includes(importSpecifier)) {
-			needsDummyImportSpecifiers.add(importSpecifier);
-			continue;
-		}
-
+	for (const { importSpecifier } of remoteImports) {
 		const cmd = ["deno", "vendor", "--force", "--no-config"];
 		cmd.push("--output", vendorOutputPath);
 		cmd.push(importSpecifier);
@@ -396,7 +452,7 @@ ${errorString}`,
 		await Deno.writeTextFile(ambientModulesFilePath, ambientModulesContent);
 	}
 
-	for (const importData of allImports) {
+	for (const importData of remoteImports) {
 		const apiBaseUrl = new URL(toFileUrl(importData.importerFilePath));
 		const resolvedModuleSpecifier = resolveModuleSpecifierAll(
 			apiBaseUrl,
@@ -430,4 +486,14 @@ ${errorString}`,
 		2,
 	);
 	await Deno.writeTextFile(tsconfigPath, tsconfigContent);
+
+	// Update the cache file so that files aren't vendored in future runs.
+	{
+		/** @type {CacheFileData} */
+		const cacheData = {
+			vendoredImports: remoteImports.map(i => i.importSpecifier),
+		}
+		const cacheDataStr = JSON.stringify(cacheData, null, "\t");
+		await Deno.writeTextFile(cacheFilePath, cacheDataStr);
+	}
 }
