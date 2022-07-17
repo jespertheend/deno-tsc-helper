@@ -328,14 +328,30 @@ export async function generateTypes({
 	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap[]} */
 	const parsedImportMaps = [];
 
-	for (const { resolvedSpecifier, importSpecifier, importerFilePath } of remoteImports) {
+	/**
+	 * The list of remote imports mapped by their resolved specifier.
+	 * This is to ensure we don't vendor the same module twice.
+	 * @type {Map<string, RemoteImportData[]>}
+	 */
+	const mergedRemoteImports = new Map();
+	for (const remoteImport of remoteImports) {
+		const specifier = remoteImport.resolvedSpecifier.href;
+		let arr = mergedRemoteImports.get(specifier);
+		if (!arr) {
+			arr = [];
+			mergedRemoteImports.set(specifier, arr);
+		}
+		arr.push(remoteImport);
+	}
+
+	for (const [resolvedSpecifier, importDatas] of mergedRemoteImports) {
 		const cmd = ["deno", "vendor", "--force", "--no-config"];
 		cmd.push("--output", vendorOutputPath);
 		if (userImportMapPath) {
 			cmd.push("--import-map", userImportMapPath);
 		}
-		cmd.push(resolvedSpecifier.href);
-		log(`Vendoring ${resolvedSpecifier.href}`);
+		cmd.push(resolvedSpecifier);
+		log(`Vendoring ${resolvedSpecifier}`);
 		const vendorProcess = Deno.run({
 			cmd,
 			stdout: "null",
@@ -347,22 +363,26 @@ export async function generateTypes({
 			const rawError = await vendorProcess.stderrOutput();
 			const errorString = new TextDecoder().decode(rawError);
 
-			let excludeString;
-			if (resolvedSpecifier.href == importSpecifier) {
-				excludeString = importSpecifier;
-			} else {
-				excludeString = `${importSpecifier}" or "${resolvedSpecifier.href}`;
+			let excludeString = resolvedSpecifier;
+			const importSpecifiers = new Set(importDatas.map((d) => d.importSpecifier));
+			const importFilePaths = new Set(importDatas.map((d) => d.importerFilePath));
+			if (importSpecifiers.size == 1) {
+				const importSpecifier = importSpecifiers.values().next().value;
+				if (resolvedSpecifier != importSpecifier) {
+					excludeString = `${importSpecifier}" or "${resolvedSpecifier}`;
+				}
 			}
 			throw new Error(
 				`${errorString}
 
-Failed to vendor files for ${resolvedSpecifier.href}. 'deno vendor' exited with status ${status.code}.
+Failed to vendor files for ${resolvedSpecifier}. 'deno vendor' exited with status ${status.code}.
 The output of the 'deno vendor' command is shown above.
 
 The error occurred while running:
   ${cmd.join(" ")}
 
-${resolvedSpecifier.href} was imported from ${importerFilePath}.
+${resolvedSpecifier} was imported in the following files:
+${Array.from(importFilePaths).map((f) => `  ${f}`).join("\n")}
 
 Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 			);
