@@ -563,12 +563,16 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 		await Deno.writeTextFile(filePath, modified);
 	}
 
-	const dtsFetchPromises = [];
 	log("Fetching .d.ts files for vendored files.");
+	const dtsFetchPromises = [];
+	// We'll use an empty import map for resolving the urls in @deno-types comments.
+	// Otherwise the urls end up resolving to the local file system since the types url is
+	// likely the same as the .js file.
+	const emptyImportMap = createEmptyImportMap();
 	for (const { denoTypesUrl, vendorFilePath, moduleSpecifier } of collectedDtsFiles) {
 		const promise = (async () => {
 			const baseUrl = new URL(toFileUrl(vendorFilePath));
-			const resolvedDenoTypesUrl = resolveModuleSpecifierAll(baseUrl, denoTypesUrl);
+			const resolvedDenoTypesUrl = resolveModuleSpecifier(emptyImportMap, baseUrl, denoTypesUrl);
 			if (resolvedDenoTypesUrl && resolvedDenoTypesUrl.protocol === "file:") {
 				// The types url is already pointing to a local file, so we don't need to fetch it.
 				return;
