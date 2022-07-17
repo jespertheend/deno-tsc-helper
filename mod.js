@@ -205,7 +205,7 @@ export async function generateTypes({
 
 	/**
 	 * @typedef CacheFileData
-	 * @property {string[]} vendoredImports
+	 * @property {string[]} [vendoredImports]
 	 */
 
 	const cacheFilePath = resolve(absoluteOutputDirPath, "cache.json");
@@ -231,7 +231,7 @@ export async function generateTypes({
 	 * @type {Set<string>}
 	 */
 	const cachedImportSpecifiers = new Set();
-	if (cache) {
+	if (cache?.vendoredImports) {
 		for (const importSpecifier of cache.vendoredImports) {
 			cachedImportSpecifiers.add(importSpecifier);
 		}
@@ -309,8 +309,8 @@ export async function generateTypes({
 
 	{
 		let allCached = true;
-		for (const { importSpecifier } of remoteImports) {
-			if (!cachedImportSpecifiers.has(importSpecifier)) {
+		for (const { resolvedSpecifier } of remoteImports) {
+			if (!cachedImportSpecifiers.has(resolvedSpecifier.href)) {
 				allCached = false;
 				break;
 			}
@@ -606,9 +606,10 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 
 	// Update the cache file so that files aren't vendored in future runs.
 	{
+		const vendoredImports = new Set(remoteImports.map((i) => i.resolvedSpecifier.href));
 		/** @type {CacheFileData} */
 		const cacheData = {
-			vendoredImports: remoteImports.map((i) => i.importSpecifier),
+			vendoredImports: Array.from(vendoredImports),
 		};
 		const cacheDataStr = JSON.stringify(cacheData, null, "\t");
 		await Deno.writeTextFile(cacheFilePath, cacheDataStr);
