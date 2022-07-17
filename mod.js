@@ -24,8 +24,9 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * will not be parsed. This defaults to [".denoTypes", "node_modules"].
  * @property {string[]} [excludeUrls] A list of urls to ignore when fetching types.
  * If a specific import specifier is causing issues, you can add its exact url to this list.
+ * If you are using an import map, you can also use the specifier from the import map.
  * An [ambient module](https://www.typescriptlang.org/docs/handbook/modules.html#shorthand-ambient-modules)
- * will be created that contains no types for each of these.
+ * will be created that contains no types for each excluded url.
  * @property {string?} [importMap] A path to the import map to use. If provided, the paths in the generated
  * tsconfig.json will be set to values in the import map.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
@@ -316,7 +317,7 @@ export async function generateTypes({
 	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap[]} */
 	const parsedImportMaps = [];
 
-	for (const { resolvedSpecifier } of remoteImports) {
+	for (const { resolvedSpecifier, importSpecifier, importerFilePath } of remoteImports) {
 		const cmd = ["deno", "vendor", "--force", "--no-config"];
 		cmd.push("--output", vendorOutputPath);
 		if (userImportMapPath) {
@@ -333,14 +334,25 @@ export async function generateTypes({
 		if (!status.success) {
 			const rawError = await vendorProcess.stderrOutput();
 			const errorString = new TextDecoder().decode(rawError);
+
+			let excludeString;
+			if (resolvedSpecifier.href == importSpecifier) {
+				excludeString = importSpecifier;
+			} else {
+				excludeString = `${importSpecifier}" or "${resolvedSpecifier.href}`;
+			}
 			throw new Error(
-				`Failed to vendor files for ${resolvedSpecifier.href}. \`deno vendor\` exited with status ${status.code}.
-Consider adding "${resolvedSpecifier.href}" to \`excludeUrls\` to skip this import.
+				`${errorString}
+
+Failed to vendor files for ${resolvedSpecifier.href}. 'deno vendor' exited with status ${status.code}.
+The output of the 'deno vendor' command is shown above.
 
 The error occurred while running:
-${cmd.join(" ")}
-The command resulted in the following error:
-${errorString}`,
+  ${cmd.join(" ")}
+
+${resolvedSpecifier.href} was imported from ${importerFilePath}.
+
+Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 			);
 		}
 
