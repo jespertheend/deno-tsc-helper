@@ -31,6 +31,7 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * tsconfig.json will be set to values in the import map.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
+ * @property {boolean} [quiet] Whether to suppress output.
  */
 
 /** @typedef {(entry: Deno.DirEntry) => boolean} ReadDirRecursiveFilter */
@@ -138,7 +139,15 @@ export async function generateTypes({
 	importMap = null,
 	outputDir = "./.denoTypes",
 	unstable = false,
+	quiet = false,
 } = {}) {
+	/**
+	 * @param {Parameters<typeof console.log>} args
+	 */
+	function log(...args) {
+		if (!quiet) console.log(...args);
+	}
+
 	const absoluteOutputDirPath = resolveFromMainModule(outputDir);
 	await Deno.mkdir(absoluteOutputDirPath, { recursive: true });
 
@@ -147,6 +156,7 @@ export async function generateTypes({
 	await Deno.writeTextFile(gitIgnorePath, "**");
 
 	// Add deno types file from the `deno types` command.
+	log("Generating Deno types");
 	const denoTypesCmd = ["deno", "types"];
 	if (unstable) denoTypesCmd.push("--unstable");
 	const getDenoTypesProcess = Deno.run({
@@ -245,6 +255,7 @@ export async function generateTypes({
 	 * @type {ImportData[]}
 	 */
 	const allImports = [];
+	log("Collecting import specifiers from script files");
 	for (const userFile of userFiles) {
 		await parseFileAst(userFile, (node) => {
 			if (
@@ -259,10 +270,10 @@ export async function generateTypes({
 	}
 
 	/** @type {Set<string>} */
-	const needsDummyImportSpecifiers = new Set();
+	const needsAmbientModuleImportSpecifiers = new Set();
 	for (const { importSpecifier } of allImports) {
 		if (excludeUrls.includes(importSpecifier)) {
-			needsDummyImportSpecifiers.add(importSpecifier);
+			needsAmbientModuleImportSpecifiers.add(importSpecifier);
 		}
 	}
 
@@ -280,7 +291,6 @@ export async function generateTypes({
 
 	/** @type {RemoteImportData[]} */
 	const remoteImports = [];
-
 	for (const { importSpecifier, importerFilePath } of allImports) {
 		if (excludeUrls.includes(importSpecifier)) continue;
 
@@ -308,6 +318,7 @@ export async function generateTypes({
 
 		// If all imports are already cached, we don't need to do anything.
 		if (allCached) {
+			log("No imports have changed since the last run");
 			return;
 		}
 	}
@@ -324,6 +335,7 @@ export async function generateTypes({
 			cmd.push("--import-map", userImportMapPath);
 		}
 		cmd.push(resolvedSpecifier.href);
+		log(`Vendoring ${resolvedSpecifier.href}`);
 		const vendorProcess = Deno.run({
 			cmd,
 			stdout: "null",
@@ -352,7 +364,7 @@ The error occurred while running:
 
 ${resolvedSpecifier.href} was imported from ${importerFilePath}.
 
-Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
+Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 			);
 		}
 
@@ -446,6 +458,7 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 
 	const denoTypesRegex = /\/\/\s*@deno-types\s*=\s*"(?<url>.*)"/;
 	const printer = ts.createPrinter();
+	log("Modifying vendored files");
 	for await (const filePath of readDirRecursive(vendorOutputPath)) {
 		const ast = await parseFileAst(filePath, (node, { sourceFile }) => {
 			// Collect imports/exports with an deno-types comment
@@ -484,6 +497,7 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 	}
 
 	const dtsFetchPromises = [];
+	log("Fetching .d.ts files for vendored files.");
 	for (const { denoTypesUrl, vendorFilePath, moduleSpecifier } of collectedDtsFiles) {
 		const promise = (async () => {
 			const baseUrl = new URL(toFileUrl(vendorFilePath));
@@ -492,6 +506,7 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 				// The types url is already pointing to a local file, so we don't need to fetch it.
 				return;
 			}
+			log(`Fetching ${denoTypesUrl}`);
 			const response = await fetch(denoTypesUrl);
 			const text = await response.text();
 			const dtsDestination = resolveModuleSpecifierAll(baseUrl, moduleSpecifier);
@@ -518,13 +533,14 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 	 */
 	const tsConfigPaths = [];
 
-	if (needsDummyImportSpecifiers.size > 0) {
+	if (needsAmbientModuleImportSpecifiers.size > 0) {
+		log("Creating ambient modules for excluded urls");
 		const ambientModulesDirPath = resolve(typeRootsDirPath, "deno-tsc-helper-ambient-modules");
 		await Deno.mkdir(ambientModulesDirPath, { recursive: true });
 		const ambientModulesFilePath = resolve(ambientModulesDirPath, "index.d.ts");
 
 		let ambientModulesContent = "";
-		for (const specifier of needsDummyImportSpecifiers) {
+		for (const specifier of needsAmbientModuleImportSpecifiers) {
 			ambientModulesContent += `declare module "${specifier}";\n`;
 		}
 
@@ -543,12 +559,13 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 		// the .denoTypes directory, we don't need to do anything.
 		if (!vendorResolvedSpecifier) continue;
 
-		if (needsDummyImportSpecifiers.has(importSpecifier)) continue;
+		if (needsAmbientModuleImportSpecifiers.has(importSpecifier)) continue;
 
 		tsConfigPaths.push([importSpecifier, vendorResolvedSpecifier.pathname]);
 	}
 
 	// Add tsconfig.json
+	log("Creating tsconfig.json");
 	const tsconfigPath = join(absoluteOutputDirPath, "tsconfig.json");
 	/** @type {Object.<string, string[]>} */
 	const tsConfigPathsObject = {};
@@ -576,4 +593,6 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`
 		const cacheDataStr = JSON.stringify(cacheData, null, "\t");
 		await Deno.writeTextFile(cacheFilePath, cacheDataStr);
 	}
+
+	log("Done creating types for remote imports.");
 }
