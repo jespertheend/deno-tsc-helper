@@ -156,7 +156,7 @@ export async function generateTypes({
 	 * @property {string} [denoTypesVersion]
 	 */
 
-	const cacheFilePath = resolve(absoluteOutputDirPath, "cache.json");
+	const cacheFilePath = resolve(absoluteOutputDirPath, "cacheFile.json");
 	/** @type {CacheFileData?} */
 	let cache = null;
 	let cacheExists = true;
