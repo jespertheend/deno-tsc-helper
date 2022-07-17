@@ -29,6 +29,8 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * will be created that contains no types for each excluded url.
  * @property {string?} [importMap] A path to the import map to use. If provided, the paths in the generated
  * tsconfig.json will be set to values in the import map.
+ * @property {Object.<string, string>} [extraTypeRoots] Allows you to provide extra type roots
+ * which will be fetched and placed in the `@types` directory.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
  * @property {boolean} [quiet] Whether to suppress output.
@@ -139,6 +141,7 @@ export async function generateTypes({
 	importMap = null,
 	outputDir = "./.denoTypes",
 	unstable = false,
+	extraTypeRoots = {},
 	quiet = false,
 } = {}) {
 	/**
@@ -154,6 +157,7 @@ export async function generateTypes({
 	 * @typedef CacheFileData
 	 * @property {string[]} [vendoredImports]
 	 * @property {string} [denoTypesVersion]
+	 * @property {Object.<string, string>} [fetchedTypeRoots]
 	 */
 
 	const cacheFilePath = resolve(absoluteOutputDirPath, "cacheFile.json");
@@ -186,6 +190,8 @@ export async function generateTypes({
 	}
 
 	const denoTypesVersion = cache?.denoTypesVersion || "";
+
+	const cachedTypeRoots = cache?.fetchedTypeRoots || {};
 
 	/** @type {CacheFileData} */
 	let newCacheData = {
@@ -245,6 +251,33 @@ export async function generateTypes({
 			denoTypesVersion: desiredDenoTypesVersion,
 		});
 	}
+
+	// Reset the cache in case anything goes wrong while fetching type roots.
+	// This ensures subsequent runs will start with a fresh cache.
+	await updateCacheData({
+		fetchedTypeRoots: {},
+	});
+	/** @type {Object.<string, string>} */
+	const newFetchedTypeRoots = {};
+	for (const [folderName, url] of Object.entries(extraTypeRoots)) {
+		if (cachedTypeRoots[folderName] != url) {
+			log(`Fetching type root ${folderName}`);
+			const response = await fetch(url);
+			if (!response.ok) {
+				throw new Error(
+					`Failed to fetch type root ${folderName}, the server responded with status code ${response.status}`,
+				);
+			}
+			const typeRootDirPath = resolve(typeRootsDirPath, folderName);
+			await Deno.mkdir(typeRootDirPath, { recursive: true });
+			const typeRootFilePath = resolve(typeRootDirPath, "index.d.ts");
+			await Deno.writeTextFile(typeRootFilePath, await response.text());
+		}
+		newFetchedTypeRoots[folderName] = url;
+	}
+	await updateCacheData({
+		fetchedTypeRoots: newFetchedTypeRoots,
+	});
 
 	/**
 	 * A list of absolute paths pointing to all .js and .ts files that the user
