@@ -323,6 +323,14 @@ export async function generateTypes({
 		}
 	}
 
+	// At this point, we know we'll be regenerating all the files, so we'll remove
+	// the cache file if it exists. This is because if the script fails at this
+	// point, the generated types might be corrupted. Removing the cache file
+	// ensures that subsequent runs are forced to start with a fresh cache.
+	if (cacheExists) {
+		await Deno.remove(cacheFilePath);
+	}
+
 	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
 	const importMapPath = join(vendorOutputPath, "import_map.json");
 	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap[]} */
