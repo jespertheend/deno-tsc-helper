@@ -149,63 +149,11 @@ export async function generateTypes({
 	}
 
 	const absoluteOutputDirPath = resolveFromMainModule(outputDir);
-	await Deno.mkdir(absoluteOutputDirPath, { recursive: true });
-
-	// Add .gitignore
-	const gitIgnorePath = join(absoluteOutputDirPath, ".gitignore");
-	await Deno.writeTextFile(gitIgnorePath, "**");
-
-	// Add deno types file from the `deno types` command.
-	log("Generating Deno types");
-	const denoTypesCmd = ["deno", "types"];
-	if (unstable) denoTypesCmd.push("--unstable");
-	const getDenoTypesProcess = Deno.run({
-		cmd: denoTypesCmd,
-		stdout: "piped",
-	});
-	const typesBuffer = await getDenoTypesProcess.output();
-	const typesContent = new TextDecoder().decode(typesBuffer);
-	let lines = typesContent.split("\n");
-	lines = lines.filter((line) => !line.startsWith("/// <reference"));
-	const newTypesContent = lines.join("\n");
-
-	const typeRootsDirPath = join(absoluteOutputDirPath, "@types");
-	const denoTypesDirPath = join(typeRootsDirPath, "deno-types");
-	await Deno.mkdir(denoTypesDirPath, { recursive: true });
-	const denoTypesFilePath = join(denoTypesDirPath, "index.d.ts");
-	await Deno.writeTextFile(denoTypesFilePath, newTypesContent);
-
-	/**
-	 * A list of absolute paths pointing to all .js and .ts files that the user
-	 * wishes to parse and detect imports from.
-	 * @type {string[]}
-	 */
-	const userFiles = [];
-	for (const includePath of include) {
-		const absoluteIncludePath = resolve(
-			dirname(fromFileUrl(Deno.mainModule)),
-			includePath,
-		);
-		const fileInfo = await Deno.stat(absoluteIncludePath);
-		if (fileInfo.isDirectory) {
-			/** @type {ReadDirRecursiveFilter} */
-			const filter = (entry) => {
-				if (exclude.includes(entry.name)) return false;
-				return true;
-			};
-			for await (const filePath of readDirRecursive(includePath, filter)) {
-				if (filePath.endsWith(".js") || filePath.endsWith(".ts") || filePath.endsWith(".d.ts")) {
-					userFiles.push(filePath);
-				}
-			}
-		} else {
-			userFiles.push(absoluteIncludePath);
-		}
-	}
 
 	/**
 	 * @typedef CacheFileData
 	 * @property {string[]} [vendoredImports]
+	 * @property {string} [denoTypesVersion]
 	 */
 
 	const cacheFilePath = resolve(absoluteOutputDirPath, "cache.json");
@@ -234,6 +182,95 @@ export async function generateTypes({
 	if (cache?.vendoredImports) {
 		for (const importSpecifier of cache.vendoredImports) {
 			cachedImportSpecifiers.add(importSpecifier);
+		}
+	}
+
+	const denoTypesVersion = cache?.denoTypesVersion || "";
+
+	/** @type {CacheFileData} */
+	let newCacheData = {
+		...cache,
+	};
+
+	/**
+	 * @param {Partial<CacheFileData>} setProps
+	 */
+	async function updateCacheData(setProps) {
+		newCacheData = {
+			...newCacheData,
+			...setProps,
+		};
+		const cacheDataStr = JSON.stringify(newCacheData, null, "\t");
+		await Deno.writeTextFile(cacheFilePath, cacheDataStr);
+	}
+
+	let hasOutputDir = true;
+	try {
+		await Deno.stat(absoluteOutputDirPath);
+	} catch {
+		hasOutputDir = false;
+	}
+
+	if (!hasOutputDir) {
+		await Deno.mkdir(absoluteOutputDirPath, { recursive: true });
+
+		// Add .gitignore
+		const gitIgnorePath = join(absoluteOutputDirPath, ".gitignore");
+		await Deno.writeTextFile(gitIgnorePath, "**");
+	}
+
+	// Add deno types file from the `deno types` command.
+	const typeRootsDirPath = resolve(absoluteOutputDirPath, "@types");
+	const desiredDenoTypesVersion = Deno.version.deno + (unstable ? "-unstable" : "");
+	if (denoTypesVersion != desiredDenoTypesVersion) {
+		log("Generating Deno types");
+		const denoTypesCmd = ["deno", "types"];
+		if (unstable) denoTypesCmd.push("--unstable");
+		const getDenoTypesProcess = Deno.run({
+			cmd: denoTypesCmd,
+			stdout: "piped",
+		});
+		const typesBuffer = await getDenoTypesProcess.output();
+		const typesContent = new TextDecoder().decode(typesBuffer);
+		let lines = typesContent.split("\n");
+		lines = lines.filter((line) => !line.startsWith("/// <reference"));
+		const newTypesContent = lines.join("\n");
+
+		const denoTypesDirPath = resolve(typeRootsDirPath, "deno-types");
+		await Deno.mkdir(denoTypesDirPath, { recursive: true });
+		const denoTypesFilePath = resolve(denoTypesDirPath, "index.d.ts");
+		await Deno.writeTextFile(denoTypesFilePath, newTypesContent);
+
+		await updateCacheData({
+			denoTypesVersion: desiredDenoTypesVersion,
+		});
+	}
+
+	/**
+	 * A list of absolute paths pointing to all .js and .ts files that the user
+	 * wishes to parse and detect imports from.
+	 * @type {string[]}
+	 */
+	const userFiles = [];
+	for (const includePath of include) {
+		const absoluteIncludePath = resolve(
+			dirname(fromFileUrl(Deno.mainModule)),
+			includePath,
+		);
+		const fileInfo = await Deno.stat(absoluteIncludePath);
+		if (fileInfo.isDirectory) {
+			/** @type {ReadDirRecursiveFilter} */
+			const filter = (entry) => {
+				if (exclude.includes(entry.name)) return false;
+				return true;
+			};
+			for await (const filePath of readDirRecursive(includePath, filter)) {
+				if (filePath.endsWith(".js") || filePath.endsWith(".ts") || filePath.endsWith(".d.ts")) {
+					userFiles.push(filePath);
+				}
+			}
+		} else {
+			userFiles.push(absoluteIncludePath);
 		}
 	}
 
@@ -324,11 +361,13 @@ export async function generateTypes({
 	}
 
 	// At this point, we know we'll be regenerating all the files, so we'll remove
-	// the cache file if it exists. This is because if the script fails at this
+	// vendoredImports from cache file. This is because if the script fails at this
 	// point, the generated types might be corrupted. Removing the cache file
 	// ensures that subsequent runs are forced to start with a fresh cache.
 	if (cacheExists) {
-		await Deno.remove(cacheFilePath);
+		await updateCacheData({
+			vendoredImports: [],
+		});
 	}
 
 	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
@@ -615,12 +654,9 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 	// Update the cache file so that files aren't vendored in future runs.
 	{
 		const vendoredImports = new Set(remoteImports.map((i) => i.resolvedSpecifier.href));
-		/** @type {CacheFileData} */
-		const cacheData = {
+		await updateCacheData({
 			vendoredImports: Array.from(vendoredImports),
-		};
-		const cacheDataStr = JSON.stringify(cacheData, null, "\t");
-		await Deno.writeTextFile(cacheFilePath, cacheDataStr);
+		});
 	}
 
 	log("Done creating types for remote imports.");
