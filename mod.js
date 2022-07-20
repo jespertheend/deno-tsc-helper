@@ -309,7 +309,7 @@ extension.
 				if (exclude.includes(entry.name)) return false;
 				return true;
 			};
-			for await (const filePath of readDirRecursive(includePath, filter)) {
+			for await (const filePath of readDirRecursive(absoluteIncludePath, filter)) {
 				if (filePath.endsWith(".js") || filePath.endsWith(".ts") || filePath.endsWith(".d.ts")) {
 					userFiles.push(filePath);
 				}
@@ -339,6 +339,7 @@ extension.
 	const allImports = [];
 	log("Collecting import specifiers from script files");
 	for (const userFile of userFiles) {
+		log(`Collecting imports from ${userFile}`);
 		await parseFileAst(userFile, (node) => {
 			if (
 				ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
