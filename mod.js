@@ -603,7 +603,8 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 			transformationResult.transformed[0],
 			ast.getSourceFile(),
 		);
-		if (filePath.endsWith(".js")) {
+		const castAst = /** @type {typeof ast & {scriptKind: ts.ScriptKind}} */ (ast);
+		if (castAst.scriptKind, ts.ScriptKind.JS) {
 			modified = "// @ts-nocheck\n" + modified;
 		}
 		await Deno.writeTextFile(filePath, modified);
