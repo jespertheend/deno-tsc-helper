@@ -574,7 +574,7 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 	log("Modifying vendored files");
 	for await (const filePath of readDirRecursive(vendorOutputPath)) {
 		const ast = await parseFileAst(filePath, (node, { sourceFile }) => {
-			// Collect imports/exports with an deno-types comment
+			// Collect imports/exports with a deno-types comment
 			if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
 				const commentRanges = ts.getLeadingCommentRanges(sourceFile.text, node.pos);
 				if (commentRanges && commentRanges.length > 0) {
@@ -603,9 +603,25 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 			transformationResult.transformed[0],
 			ast.getSourceFile(),
 		);
+		// Add ts-nocheck to suppress type errors for vendored files
 		const castAst = /** @type {typeof ast & {scriptKind: ts.ScriptKind}} */ (ast);
-		if (castAst.scriptKind == ts.ScriptKind.JS) {
-			modified = "// @ts-nocheck\n" + modified;
+		const tsNocheckScriptKinds = [
+			ts.ScriptKind.JS,
+			ts.ScriptKind.JSX,
+			ts.ScriptKind.TS,
+			ts.ScriptKind.TSX,
+		];
+		if (tsNocheckScriptKinds.includes(castAst.scriptKind)) {
+			const lines = modified.split("\n");
+			let insertionIndex = 0;
+			if (lines.length > 0) {
+				const firstLine = lines[0];
+				if (firstLine.startsWith("#!")) {
+					insertionIndex = 1;
+				}
+			}
+			lines.splice(insertionIndex, 0, "// @ts-nocheck");
+			modified = lines.join("\n");
 		}
 		await Deno.writeTextFile(filePath, modified);
 	}
