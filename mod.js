@@ -14,6 +14,8 @@ import {
 	resolveModuleSpecifier,
 } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
+import { readDirRecursive, resolveFromMainModule } from "./src/common.js";
+import { parseFileAst } from "./src/parseFileAst.js";
 
 /**
  * @typedef GenerateTypesOptions
@@ -35,99 +37,6 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
  * @property {boolean} [quiet] Whether to suppress output.
  */
-
-/** @typedef {(entry: Deno.DirEntry) => boolean} ReadDirRecursiveFilter */
-
-/**
- * Reads all directives recursively and yields all files.
- * Directories are not included.
- * @param {string} path
- * @param {ReadDirRecursiveFilter} [filter] A filter function that you can use
- * to filter out certain files from the result. If the filter returns false, the file will
- * not be included in the results. If false is returned for a directory, all of its files
- * will be excluded from the results. You can use this to prevent recursing large
- * directories that you know you won't need anyway.
- * @returns {AsyncIterable<string>}
- */
-async function* readDirRecursive(path, filter) {
-	for await (const entry of Deno.readDir(path)) {
-		if (filter && !filter(entry)) continue;
-		if (entry.isDirectory) {
-			yield* readDirRecursive(join(path, entry.name));
-		} else {
-			yield resolve(path, entry.name);
-		}
-	}
-}
-
-/**
- * @typedef ParseFileAstExtra
- * @property {ts.SourceFile} sourceFile
- */
-
-/**
- * @param {string} filePath
- * @param {(node: ts.Node, extra: ParseFileAstExtra) => void} [cbNode]
- */
-async function parseFileAst(filePath, cbNode) {
-	const fileContent = await Deno.readTextFile(filePath);
-	const program = ts.createProgram([filePath], {
-		noResolve: true,
-		target: ts.ScriptTarget.Latest,
-		module: ts.ModuleKind.ESNext,
-		allowJs: true,
-	}, {
-		fileExists: () => true,
-		getCanonicalFileName: (filePath) => filePath,
-		getCurrentDirectory: () => "",
-		getDefaultLibFileName: () => "lib.d.ts",
-		getNewLine: () => "\n",
-		getSourceFile: (fileName) => {
-			if (fileName === filePath) {
-				return ts.createSourceFile(
-					fileName,
-					fileContent,
-					ts.ScriptTarget.Latest,
-				);
-			}
-			return undefined;
-		},
-		readFile: () => undefined,
-		useCaseSensitiveFileNames: () => true,
-		writeFile: () => null,
-	});
-
-	const sourceFile = program.getSourceFile(filePath);
-
-	// TODO: Add a warning or maybe even throw?
-	if (!sourceFile) return null;
-	const sourceFile2 = sourceFile;
-
-	if (cbNode) {
-		const cb = cbNode;
-		/**
-		 * @param {ts.Node} node
-		 */
-		function traverseAst(node) {
-			cb(node, {
-				sourceFile: sourceFile2,
-			});
-			ts.forEachChild(node, traverseAst);
-		}
-
-		traverseAst(sourceFile);
-	}
-
-	return sourceFile;
-}
-
-/**
- * Resolves a path relative to the main entry point of the script.
- * @param {string} path
- */
-function resolveFromMainModule(path) {
-	return resolve(dirname(fromFileUrl(Deno.mainModule)), path);
-}
 
 /**
  * Generates type files and a tsconfig.json file that you can include in your
@@ -304,7 +213,7 @@ extension.
 		);
 		const fileInfo = await Deno.stat(absoluteIncludePath);
 		if (fileInfo.isDirectory) {
-			/** @type {ReadDirRecursiveFilter} */
+			/** @type {import("./src/common.js").ReadDirRecursiveFilter} */
 			const filter = (entry) => {
 				if (exclude.includes(entry.name)) return false;
 				return true;
