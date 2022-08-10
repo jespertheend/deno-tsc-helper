@@ -34,7 +34,7 @@ import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.0.3/m
  * @param {string[]} options.include List of paths to include.
  * @param {string[]} options.exclude List of paths to exclude.
  * @param {string[]} options.excludeUrls List of urls to exclude from the remoteImports result.
- * @param {import("../.denoTypes/vendor/deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap} options.userImportMap,
+ * @param {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap} options.userImportMap,
  * @returns {Promise<PreCollectedImportsData>}
  */
 export async function collectImports({
