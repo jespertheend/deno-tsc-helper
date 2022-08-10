@@ -14,7 +14,7 @@ import {
 	resolveModuleSpecifier,
 } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
-import { readDirRecursive, resolveFromMainModule } from "./src/common.js";
+import { getIncludeExcludeFiles, readDirRecursive, resolveFromMainModule } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
 
 /**
@@ -203,30 +203,13 @@ extension.
 	/**
 	 * A list of absolute paths pointing to all .js and .ts files that the user
 	 * wishes to parse and detect imports from.
-	 * @type {string[]}
 	 */
-	const userFiles = [];
-	for (const includePath of include) {
-		const absoluteIncludePath = resolve(
-			dirname(fromFileUrl(Deno.mainModule)),
-			includePath,
-		);
-		const fileInfo = await Deno.stat(absoluteIncludePath);
-		if (fileInfo.isDirectory) {
-			/** @type {import("./src/common.js").ReadDirRecursiveFilter} */
-			const filter = (entry) => {
-				if (exclude.includes(entry.name)) return false;
-				return true;
-			};
-			for await (const filePath of readDirRecursive(absoluteIncludePath, filter)) {
-				if (filePath.endsWith(".js") || filePath.endsWith(".ts") || filePath.endsWith(".d.ts")) {
-					userFiles.push(filePath);
-				}
-			}
-		} else {
-			userFiles.push(absoluteIncludePath);
-		}
-	}
+	const userFiles = await getIncludeExcludeFiles({
+		baseDir: dirname(fromFileUrl(Deno.mainModule)),
+		include,
+		exclude,
+		extensions: ["js", "ts", "d.ts"],
+	});
 
 	/**
 	 * @typedef ImportData

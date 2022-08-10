@@ -50,3 +50,50 @@ export function fillOptionDefaults(options) {
 	};
 	return filledOptions;
 }
+
+/**
+ * Traverses a directory and collects all the paths of all files that match the
+ * given include and exclude arrays.
+ * @param {Object} options
+ * @param {string} options.baseDir The path to start searching for files.
+ * @param {string[]} options.include List of paths to include.
+ * @param {string[]} options.exclude List of paths to exclude.
+ * @param {string[]} options.extensions Only these extensions will be included.
+ */
+export async function getIncludeExcludeFiles({
+	baseDir,
+	include,
+	exclude,
+	extensions,
+}) {
+	const files = [];
+	for (const includePath of include) {
+		const absoluteIncludePath = path.resolve(
+			baseDir,
+			includePath,
+		);
+		const fileInfo = await Deno.stat(absoluteIncludePath);
+		if (fileInfo.isDirectory) {
+			/** @type {ReadDirRecursiveFilter} */
+			const filter = (entry) => {
+				if (exclude.includes(entry.name)) return false;
+				return true;
+			};
+			for await (const filePath of readDirRecursive(absoluteIncludePath, filter)) {
+				let hasValidExtension = false;
+				for (const extension of extensions) {
+					if (filePath.endsWith(extension)) {
+						hasValidExtension = true;
+						break;
+					}
+				}
+				if (hasValidExtension) {
+					files.push(filePath);
+				}
+			}
+		} else {
+			files.push(absoluteIncludePath);
+		}
+	}
+	return files;
+}
