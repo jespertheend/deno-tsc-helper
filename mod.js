@@ -14,7 +14,8 @@ import {
 	resolveModuleSpecifier,
 } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
-import { getIncludeExcludeFiles, readDirRecursive, resolveFromMainModule } from "./src/common.js";
+import { collectImports } from "./src/collectImports.js";
+import { readDirRecursive, resolveFromMainModule } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
 
 /**
@@ -200,57 +201,6 @@ extension.
 		fetchedTypeRoots: newFetchedTypeRoots,
 	});
 
-	/**
-	 * A list of absolute paths pointing to all .js and .ts files that the user
-	 * wishes to parse and detect imports from.
-	 */
-	const userFiles = await getIncludeExcludeFiles({
-		baseDir: dirname(fromFileUrl(Deno.mainModule)),
-		include,
-		exclude,
-		extensions: ["js", "ts", "d.ts"],
-	});
-
-	/**
-	 * @typedef ImportData
-	 * @property {string} importerFilePath The absolute path to the file that imports the module.
-	 * @property {string} importSpecifier The import specifier string used in the import statement.
-	 */
-
-	/**
-	 * @typedef RemoteImportData
-	 * @property {string} importerFilePath The absolute path to the file that imports the module.
-	 * @property {string} importSpecifier The import specifier string used in the import statement.
-	 * @property {URL} resolvedSpecifier The import specifier resolved against the user import map.
-	 */
-
-	/**
-	 * List of imports found in the user files.
-	 * @type {ImportData[]}
-	 */
-	const allImports = [];
-	log("Collecting import specifiers from script files");
-	for (const userFile of userFiles) {
-		await parseFileAst(userFile, (node) => {
-			if (
-				ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
-			) {
-				allImports.push({
-					importerFilePath: userFile,
-					importSpecifier: node.moduleSpecifier.text,
-				});
-			}
-		});
-	}
-
-	/** @type {Set<string>} */
-	const needsAmbientModuleImportSpecifiers = new Set();
-	for (const { importSpecifier } of allImports) {
-		if (excludeUrls.includes(importSpecifier)) {
-			needsAmbientModuleImportSpecifiers.add(importSpecifier);
-		}
-	}
-
 	const userImportMapPath = importMap ? resolveFromMainModule(importMap) : null;
 	let userImportMapAny;
 	if (userImportMapPath) {
@@ -263,23 +213,14 @@ extension.
 	}
 	const userImportMap = userImportMapAny;
 
-	/** @type {RemoteImportData[]} */
-	const remoteImports = [];
-	for (const { importSpecifier, importerFilePath } of allImports) {
-		if (excludeUrls.includes(importSpecifier)) continue;
-
-		const baseUrl = new URL(toFileUrl(importerFilePath));
-		const resolvedSpecifier = resolveModuleSpecifier(userImportMap, baseUrl, importSpecifier);
-
-		if (excludeUrls.includes(resolvedSpecifier.href)) continue;
-		if (resolvedSpecifier.protocol == "file:") continue;
-
-		remoteImports.push({
-			importerFilePath,
-			importSpecifier,
-			resolvedSpecifier,
-		});
-	}
+	log("Collecting import specifiers from script files");
+	const { remoteImports, needsAmbientModuleImportSpecifiers } = await collectImports({
+		baseDir: dirname(fromFileUrl(Deno.mainModule)),
+		include,
+		exclude,
+		excludeUrls,
+		userImportMap,
+	});
 
 	{
 		let allCached = true;
@@ -315,7 +256,7 @@ extension.
 	/**
 	 * The list of remote imports mapped by their resolved specifier.
 	 * This is to ensure we don't vendor the same module twice.
-	 * @type {Map<string, RemoteImportData[]>}
+	 * @type {Map<string, import("./src/collectImports.js").RemoteImportData[]>}
 	 */
 	const mergedRemoteImports = new Map();
 	for (const remoteImport of remoteImports) {
