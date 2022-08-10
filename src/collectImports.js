@@ -6,7 +6,7 @@ import { getIncludeExcludeFiles } from "./common.js";
 import { parseFileAst } from "./parseFileAst.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
-import { resolveModuleSpecifier } from "../.denoTypes/vendor/deno.land/x/import_maps@v0.0.3/mod.js";
+import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
 
 /**
  * @typedef ImportData
