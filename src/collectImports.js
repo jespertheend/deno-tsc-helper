@@ -22,6 +22,12 @@ import { resolveModuleSpecifier } from "../.denoTypes/vendor/deno.land/x/import_
  */
 
 /**
+ * @typedef PreCollectedImportsData
+ * @property {RemoteImportData[]} remoteImports
+ * @property {string[]} needsAmbientModuleImportSpecifiers
+ */
+
+/**
  * Traverses a directory and collects import specifiers from all .js, .ts, and .d.ts files.
  * @param {Object} options
  * @param {string} options.baseDir The path to start searching for files.
@@ -29,6 +35,7 @@ import { resolveModuleSpecifier } from "../.denoTypes/vendor/deno.land/x/import_
  * @param {string[]} options.exclude List of paths to exclude.
  * @param {string[]} options.excludeUrls List of urls to exclude from the remoteImports result.
  * @param {import("../.denoTypes/vendor/deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap} options.userImportMap,
+ * @returns {Promise<PreCollectedImportsData>}
  */
 export async function collectImports({
 	baseDir,
@@ -94,6 +101,6 @@ export async function collectImports({
 
 	return {
 		remoteImports,
-		needsAmbientModuleImportSpecifiers,
+		needsAmbientModuleImportSpecifiers: Array.from(needsAmbientModuleImportSpecifiers),
 	};
 }
