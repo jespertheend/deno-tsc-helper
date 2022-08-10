@@ -339,7 +339,6 @@ extension.
 	const allImports = [];
 	log("Collecting import specifiers from script files");
 	for (const userFile of userFiles) {
-		log(`Collecting imports from ${userFile}`);
 		await parseFileAst(userFile, (node) => {
 			if (
 				ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
