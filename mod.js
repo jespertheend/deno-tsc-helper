@@ -151,6 +151,7 @@ export async function createCacheHashFile(options) {
 
 	const cacheHashFilePath = resolve(absoluteOutputDirPath, cacheHashFile);
 	await Deno.writeTextFile(cacheHashFilePath, cacheHashContent);
+	log(`Created cache hash file at ${cacheHashFilePath}`);
 
 	if (preCollectedImportsFile) {
 		const preCollectedImportsFilePath = resolve(absoluteOutputDirPath, preCollectedImportsFile);
