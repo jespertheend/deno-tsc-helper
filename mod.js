@@ -41,43 +41,78 @@ import { parseFileAst } from "./src/parseFileAst.js";
  * @property {Object.<string, string>} [extraTypeRoots] Allows you to provide extra type roots
  * which will be fetched and placed in the `@types` directory.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
- * @property {string?} [preCollectedImportsFile] A path relative to `outputDir` where the collected imports file is stored.
- * When set, you can use `preCollectImports` to create this file as a first step, and then reuse this file in `generateTypes`.
+ * @property {string?} [cacheHashFile] When set, a file will be written relative to `outputDir` that can be used to
+ * determine if the generated are outdated. This option is only used when calling `createCacheHashFile`.
+ *
  * This file is useful if you want to store the types in cache across multiple CI runs.
- * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
- * @property {boolean} [quiet] Whether to suppress output.
- */
-
-/**
- * This generates a file that contains data about what tasks need to be performed
- * in `generateTypes`. This is useful in case you wish to cache the generated files
- * from `generateTypes` when running in CI. For example, with github actions:
+ * The difference between this file and cacheFile.json, is that cacheFile.json is used by this application itself
+ * to determine what content specifically is outdated. The cacheHashFile is not used by this application and is meant
+ * specifically for external tools to determine if the generated files are outdated.
+ *
+ * The contents of this file might change at any time, so do not attempt to parse it as this might potentially break
+ * your application in future versions. You can create a hash from the contents of this file.
+ * For github actions for example:
  * ```
  * - name: Cache Deno types
  *   uses: actions/cache@v3
  *   with:
  *     path: .denoTypes
- *     key: denoTypes-${{ hashFiles('.denoTypes/ciCacheFile.json') }}
+ *     key: denoTypes-${{ hashFiles('.denoTypes/ciCacheFile') }}
  * ```
- * Make sure you call `preCollectImports` before the "Cache Deno types" step.
+ * @property {string?} [preCollectedImportsFile] When using `createCacheHashFile`, import data is collected from all files.
+ * However, when using `createCacheHashFile` you usually want to call `generateTypes`, right after that.
+ * This call performs the same step a second time. To prevent the same computation from being done twice,
+ * you can use this option to store a file that contains the import data.
+ *
+ * If this option is provided in `createCacheHashFile`, this creates a file at the specified location.
+ * If this option is not provided in `generateTypes`, the file at the specfifed location is loaded and used instead
+ * of performing the computation again.
+ * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
+ * @property {boolean} [quiet] Whether to suppress output.
+ */
+
+/**
+ * This generates a file that you can use to generate a cache key when running in CI.
+ * For example, with github actions:
+ * ```
+ * - name: Cache Deno types
+ *   uses: actions/cache@v3
+ *   with:
+ *     path: .denoTypes
+ *     key: denoTypes-${{ hashFiles('.denoTypes/ciCacheFile') }}
+ * ```
+ * Make sure you call `createCacheHashFile` before the "Cache Deno types" step.
  * And then you can call `generateTypes` after this step.
- * It is a wise to include the files that call `preCollectImports` and `generateTypes`
- * in the `hashFiles()` function, so that the cache is invalidated when you make
- * a change to one of the options.
+ *
  * If you have an import map, it is a good idea to include this in the
  * `hashFiles()` function as well.
+ *
+ * In general you'll want to provide the same options here as wehn calling `generateTypes`,
+ * so it's best to make one options object and pass it to both functions.
+ *
+ * This function will perform a computation that is also performed in `generateTypes`.
+ * So if you don't want to perform the same computation twice, you can provide the
+ * `preCollectedImportsFile` option to generate an extra file that contains the required import data.
  * @param {GenerateTypesOptions} [options]
  */
-export async function preCollectImports(options) {
-	const { quiet, include, exclude, excludeUrls, importMap, preCollectedImportsFile, outputDir } = fillOptionDefaults(
-		options,
-	);
+export async function createCacheHashFile(options) {
+	const { quiet, include, exclude, excludeUrls, importMap, cacheHashFile, preCollectedImportsFile, outputDir } =
+		fillOptionDefaults(
+			options,
+		);
 
-	if (!preCollectedImportsFile) {
-		throw new Error("The `preCollectedImportsFile` option is required when making use of `preCollectImports`.");
+	/**
+	 * @param {Parameters<typeof console.log>} args
+	 */
+	function log(...args) {
+		if (!quiet) console.log(...args);
 	}
 
-	if (!quiet) console.log("Collecting import specifiers from script files");
+	if (!cacheHashFile) {
+		throw new Error("The `cacheHashFile` option is required when making use of `createCacheHashFile`.");
+	}
+
+	log("Collecting import specifiers from script files");
 
 	const { userImportMap } = await loadImportMap(importMap);
 	const collectedImportData = await collectImports({
@@ -91,11 +126,42 @@ export async function preCollectImports(options) {
 	const absoluteOutputDirPath = resolveFromMainModule(outputDir);
 	await createTypesDir(absoluteOutputDirPath);
 
-	const preCollectedImportsFilePath = resolve(absoluteOutputDirPath, preCollectedImportsFile);
-	await Deno.writeTextFile(preCollectedImportsFilePath, JSON.stringify(collectedImportData, null, "\t"), {
-		create: true,
-	});
-	if (!quiet) console.log(`Collected imports file written to ${preCollectedImportsFilePath}`);
+	let cacheHashContent = "";
+
+	cacheHashContent += "--options--\n";
+	cacheHashContent += JSON.stringify(options) + "\n";
+
+	cacheHashContent += "--resolved specifiers--\n";
+	{
+		/** @type {Set<string>} */
+		const resolvedSpecifiers = new Set();
+		for (const { resolvedSpecifier } of collectedImportData.remoteImports) {
+			resolvedSpecifiers.add(resolvedSpecifier.href);
+		}
+		const sorted = [...resolvedSpecifiers].sort();
+		for (const specifier of sorted) {
+			cacheHashContent += `${specifier}\n`;
+		}
+	}
+
+	cacheHashContent += "--ambient module specifiers--\n";
+	{
+		const sorted = [...collectedImportData.needsAmbientModuleImportSpecifiers].sort();
+		for (const specifier of sorted) {
+			cacheHashContent += `${specifier}\n`;
+		}
+	}
+
+	const cacheHashFilePath = resolve(absoluteOutputDirPath, cacheHashFile);
+	await Deno.writeTextFile(cacheHashFilePath, cacheHashContent);
+
+	if (preCollectedImportsFile) {
+		const preCollectedImportsFilePath = resolve(absoluteOutputDirPath, preCollectedImportsFile);
+		await Deno.writeTextFile(preCollectedImportsFilePath, JSON.stringify(collectedImportData, null, "\t"), {
+			create: true,
+		});
+		log(`Collected imports file written to ${preCollectedImportsFilePath}`);
+	}
 }
 
 /**
