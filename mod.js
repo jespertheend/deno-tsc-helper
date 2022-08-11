@@ -84,9 +84,6 @@ import { parseFileAst } from "./src/parseFileAst.js";
  * Make sure you call `createCacheHashFile` before the "Cache Deno types" step.
  * And then you can call `generateTypes` after this step.
  *
- * If you have an import map, it is a good idea to include this in the
- * `hashFiles()` function as well.
- *
  * In general you'll want to provide the same options here as wehn calling `generateTypes`,
  * so it's best to make one options object and pass it to both functions.
  *
