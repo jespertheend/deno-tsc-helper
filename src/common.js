@@ -68,7 +68,7 @@ export async function* readDirRecursive(dirPath, filter) {
 }
 
 /**
- * @param {import("../mod.js").GenerateTypesOptions} [options]
+ * @param {import("../mod.js").GenerateTypesOptions} options
  */
 export function fillOptionDefaults({
 	include = ["."],
