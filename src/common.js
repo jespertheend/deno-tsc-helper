@@ -80,6 +80,7 @@ export function fillOptionDefaults({
 	preCollectedImportsFile = null,
 	unstable = false,
 	extraTypeRoots = {},
+	exactTypeModules = {},
 	quiet = false,
 } = {}) {
 	return {
@@ -92,6 +93,7 @@ export function fillOptionDefaults({
 		preCollectedImportsFile,
 		unstable,
 		extraTypeRoots,
+		exactTypeModules,
 		quiet,
 	};
 }

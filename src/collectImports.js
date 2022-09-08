@@ -92,6 +92,11 @@ export async function collectImports({
 		if (excludeUrls.includes(resolvedSpecifier.href)) continue;
 		if (resolvedSpecifier.protocol == "file:") continue;
 
+		// Deno doesn't support vendoring npm modules at the moment so this will
+		// always fail. If users want to fetch types for `npm:` imports, they
+		// should use the `exactTypeModules` option.
+		if (resolvedSpecifier.protocol == "npm:") continue;
+
 		remoteImports.push({
 			importerFilePath,
 			importSpecifier,

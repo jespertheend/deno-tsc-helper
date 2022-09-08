@@ -8,6 +8,7 @@ import {
 	resolve,
 	toFileUrl,
 } from "https://deno.land/std@0.145.0/path/mod.ts";
+import { ensureDir } from "https://deno.land/std@0.145.0/fs/mod.ts";
 import {
 	createEmptyImportMap,
 	parseImportMap,
@@ -40,6 +41,19 @@ import { parseFileAst } from "./src/parseFileAst.js";
  * tsconfig.json will be set to values in the import map.
  * @property {Object.<string, string>} [extraTypeRoots] Allows you to provide extra type roots
  * which will be fetched and placed in the `@types` directory.
+ * @property {Object<string, string>} [exactTypeModules] This is mostly useful for
+ * types coming from the DefinitelyTyped repository.
+ * This allows you to map a specifier directly to a types file from any url.
+ * For example:
+ * ```js
+ * generateTypes({
+ *   exactTypeModules: {
+ *     "npm:eslint@8.23.0": "https://unpkg.com/@types/eslint@8.4.6/index.d.ts",
+ * 	 },
+ * });
+ * ```
+ * Would allow you to `import {ESLint} from "npm:eslint@8.23.0";` and automatically
+ * get the correct types on the `ESLint` object.
  * @property {string} [outputDir] The directory to output the generated files to. This is relative to the main entry point of the script.
  * @property {string?} [cacheHashFile] When set, a file will be written relative to `outputDir` that can be used to
  * determine if the generated are outdated. This option is only used when calling `createCacheHashFile`.
@@ -174,6 +188,7 @@ export async function generateTypes(options) {
 		excludeUrls,
 		importMap,
 		extraTypeRoots,
+		exactTypeModules,
 		outputDir,
 		unstable,
 		quiet,
@@ -194,6 +209,7 @@ export async function generateTypes(options) {
 	 * @property {string[]} [vendoredImports]
 	 * @property {string} [denoTypesVersion]
 	 * @property {Object.<string, string>} [fetchedTypeRoots]
+	 * @property {Object<string, string>} [fetchedExactTypeModules]
 	 */
 
 	const cacheFilePath = resolve(absoluteOutputDirPath, "cacheFile.json");
@@ -226,8 +242,8 @@ export async function generateTypes(options) {
 	}
 
 	const denoTypesVersion = cache?.denoTypesVersion || "";
-
 	const cachedTypeRoots = cache?.fetchedTypeRoots || {};
+	const cachedExactTypeModules = cache?.fetchedExactTypeModules || {};
 
 	/** @type {CacheFileData} */
 	let newCacheData = {
@@ -275,6 +291,8 @@ export async function generateTypes(options) {
 		});
 	}
 
+	// Fetch type roots from the `extraTypeRoots` option:
+
 	// Reset the cache in case anything goes wrong while fetching type roots.
 	// This ensures subsequent runs will start with a fresh cache.
 	await updateCacheData({
@@ -292,7 +310,7 @@ export async function generateTypes(options) {
 				);
 			}
 			const typeRootDirPath = resolve(typeRootsDirPath, folderName);
-			await Deno.mkdir(typeRootDirPath, { recursive: true });
+			await ensureDir(typeRootDirPath);
 			const typeRootFilePath = resolve(typeRootDirPath, "index.d.ts");
 			await Deno.writeTextFile(typeRootFilePath, await response.text());
 		}
@@ -301,6 +319,31 @@ export async function generateTypes(options) {
 	await updateCacheData({
 		fetchedTypeRoots: newFetchedTypeRoots,
 	});
+
+	// Fetch types from the `exactTypeModules` option:
+
+	// Clear the cache in case anything goes wrong.
+	await updateCacheData({ fetchedExactTypeModules: {} });
+	/** @type {Object<string, string>} */
+	const newFetchedExactTypeModules = {};
+	const exactTypesDirPath = resolve(absoluteOutputDirPath, "exactTypes");
+	for (const [specifier, url] of Object.entries(exactTypeModules)) {
+		if (cachedExactTypeModules[specifier] != url) {
+			log(`Fetching npm types for ${specifier}`);
+			const response = await fetch(url);
+			if (!response.ok) {
+				throw new Error(
+					`Failed to fetch npm types for ${specifier}, the server responded with status code ${response.status}.`,
+				);
+			}
+			const dirPath = resolve(exactTypesDirPath, specifier);
+			await ensureDir(dirPath);
+			const filePath = resolve(dirPath, "index.d.ts");
+			await Deno.writeTextFile(filePath, await response.text());
+		}
+		newFetchedExactTypeModules[specifier] = url;
+	}
+	await updateCacheData({ fetchedExactTypeModules: newFetchedExactTypeModules });
 
 	const { userImportMap, userImportMapPath } = await loadImportMap(importMap);
 
@@ -356,9 +399,13 @@ export async function generateTypes(options) {
 			}
 		}
 
-		// If all imports are already cached, we don't need to do anything.
 		if (allCached) {
 			log("No imports have changed since the last run");
+			// TODO: Don't return here, instead only vendor the specifiers that have
+			// changed. #18
+			// If no specifiers have changed that doesn't necessarily mean that
+			// there's no work left to do. For instance the exactTypeModules
+			// property might have changed.
 			return;
 		}
 	}
@@ -651,6 +698,13 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 		if (!vendorResolvedSpecifier) continue;
 
 		tsConfigPaths.push([importSpecifier, vendorResolvedSpecifier.pathname]);
+	}
+
+	for (const specifier of Object.keys(newFetchedExactTypeModules)) {
+		tsConfigPaths.push([
+			specifier,
+			resolve(exactTypesDirPath, specifier, "index.d.ts"),
+		]);
 	}
 
 	// Add tsconfig.json
