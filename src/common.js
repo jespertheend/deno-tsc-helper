@@ -2,14 +2,6 @@ import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
 import { createEmptyImportMap, parseImportMap } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
 
 /**
- * Resolves a path relative to the main entry point of the script.
- * @param {string} resolvePath
- */
-export function resolveFromMainModule(resolvePath) {
-	return path.resolve(path.dirname(path.fromFileUrl(Deno.mainModule)), resolvePath);
-}
-
-/**
  * Creates the types directory and populates it with some default files such
  * as a readme.md and a .gitignore file.
  * @param {string} absoluteOutputDirPath
@@ -149,9 +141,10 @@ export async function getIncludeExcludeFiles({
  * Loads the import map specified using the `importMap` option.
  * If the option is not provided, an empty import map is returned.
  * @param {string?} importMap
+ * @param {string} cwd
  */
-export async function loadImportMap(importMap) {
-	const userImportMapPath = importMap ? resolveFromMainModule(importMap) : null;
+export async function loadImportMap(importMap, cwd) {
+	const userImportMapPath = importMap ? path.resolve(cwd, importMap) : null;
 	let userImportMap;
 	if (userImportMapPath) {
 		const userImportMapStr = await Deno.readTextFile(userImportMapPath);

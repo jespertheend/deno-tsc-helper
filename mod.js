@@ -1,6 +1,5 @@
 import {
 	common,
-	dirname,
 	format,
 	fromFileUrl,
 	join,
@@ -16,13 +15,7 @@ import {
 } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import { collectImports } from "./src/collectImports.js";
-import {
-	createTypesDir,
-	fillOptionDefaults,
-	loadImportMap,
-	readDirRecursive,
-	resolveFromMainModule,
-} from "./src/common.js";
+import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
 
 /**
@@ -107,6 +100,7 @@ import { parseFileAst } from "./src/parseFileAst.js";
  * @param {GenerateTypesOptions} [options]
  */
 export async function createCacheHashFile(options) {
+	const cwd = Deno.cwd();
 	const { quiet, include, exclude, excludeUrls, importMap, cacheHashFile, preCollectedImportsFile, outputDir } =
 		fillOptionDefaults(
 			options,
@@ -125,16 +119,16 @@ export async function createCacheHashFile(options) {
 
 	log("Collecting import specifiers from script files");
 
-	const { userImportMap } = await loadImportMap(importMap);
+	const { userImportMap } = await loadImportMap(importMap, cwd);
 	const collectedImportData = await collectImports({
-		baseDir: dirname(fromFileUrl(Deno.mainModule)),
+		baseDir: cwd,
 		include,
 		exclude,
 		excludeUrls,
 		userImportMap,
 	});
 
-	const absoluteOutputDirPath = resolveFromMainModule(outputDir);
+	const absoluteOutputDirPath = resolve(cwd, outputDir);
 	await createTypesDir(absoluteOutputDirPath);
 
 	let cacheHashContent = "";
@@ -182,6 +176,7 @@ export async function createCacheHashFile(options) {
  * @param {GenerateTypesOptions} [options]
  */
 export async function generateTypes(options) {
+	const cwd = Deno.cwd();
 	const {
 		include,
 		exclude,
@@ -202,7 +197,7 @@ export async function generateTypes(options) {
 		if (!quiet) console.log(...args);
 	}
 
-	const absoluteOutputDirPath = resolveFromMainModule(outputDir);
+	const absoluteOutputDirPath = resolve(cwd, outputDir);
 
 	/**
 	 * @typedef CacheFileData
@@ -345,7 +340,7 @@ export async function generateTypes(options) {
 	}
 	await updateCacheData({ fetchedExactTypeModules: newFetchedExactTypeModules });
 
-	const { userImportMap, userImportMapPath } = await loadImportMap(importMap);
+	const { userImportMap, userImportMapPath } = await loadImportMap(importMap, cwd);
 
 	/** @type {import("./src/collectImports.js").PreCollectedImportsData?} */
 	let preCollectedImports = null;
@@ -380,7 +375,7 @@ export async function generateTypes(options) {
 	if (!preCollectedImports) {
 		log("Collecting import specifiers from script files");
 		preCollectedImports = await collectImports({
-			baseDir: dirname(fromFileUrl(Deno.mainModule)),
+			baseDir: cwd,
 			include,
 			exclude,
 			excludeUrls,

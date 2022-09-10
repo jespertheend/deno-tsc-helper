@@ -6,6 +6,8 @@
  */
 
 import { generateTypes } from "./mod.js";
+import { setCwd } from "https://deno.land/x/chdir_anywhere@v0.0.2/mod.js";
+setCwd();
 
 await generateTypes({
 	include: [
