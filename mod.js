@@ -273,6 +273,8 @@ export async function generateTypes(options) {
 		const typesBuffer = await getDenoTypesProcess.output();
 		const typesContent = new TextDecoder().decode(typesBuffer);
 		let lines = typesContent.split("\n");
+		// Remove tripple slash directives as this causes errors since the files
+		// they are pointing to don't exist.
 		lines = lines.filter((line) => !line.startsWith("/// <reference"));
 		const newTypesContent = lines.join("\n");
 
@@ -611,7 +613,7 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 			ts.ScriptKind.TSX,
 		];
 		if (tsNocheckScriptKinds.includes(castAst.scriptKind)) {
-			const lines = modified.split("\n");
+			let lines = modified.split("\n");
 			let insertionIndex = 0;
 			if (lines.length > 0) {
 				const firstLine = lines[0];
@@ -620,6 +622,9 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
 				}
 			}
 			lines.splice(insertionIndex, 0, "// @ts-nocheck");
+			// Adding a ts-nocheck comment does not seem to be enough to suppress
+			// errors from missing tripple slash directive files. So we'll remove these.
+			lines = lines.filter((line) => !line.startsWith("/// <reference"));
 			modified = lines.join("\n");
 		}
 		await Deno.writeTextFile(filePath, modified);
