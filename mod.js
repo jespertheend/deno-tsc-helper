@@ -17,7 +17,7 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import { collectImports } from "./src/collectImports.js";
 import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
-import {red, yellow} from "https://deno.land/std@0.157.0/fmt/colors.ts";
+import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
 
 /**
  * @typedef GenerateTypesOptions
@@ -469,9 +469,10 @@ export async function generateTypes(options) {
 			}
 			let importmapMessage;
 			if (userImportMapPath) {
-				importmapMessage = `Aternatively you can add any offending imports to your import map at "${userImportMapPath}".`
+				importmapMessage =
+					`Aternatively you can add any offending imports to your import map at "${userImportMapPath}".`;
 			} else {
-				importmapMessage = `Aternatively you can add any offending imports to an import map.`
+				importmapMessage = `Aternatively you can add any offending imports to an import map.`;
 			}
 			throw new Error(
 				`${errorString}
