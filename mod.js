@@ -468,8 +468,8 @@ export async function generateTypes(options) {
 				}
 			}
 			let importmapMessage;
-			if (userImportMap) {
-				importmapMessage = `Aternatively you can add any offending imports to your import map at "${userImportMap}".`
+			if (userImportMapPath) {
+				importmapMessage = `Aternatively you can add any offending imports to your import map at "${userImportMapPath}".`
 			} else {
 				importmapMessage = `Aternatively you can add any offending imports to an import map.`
 			}
