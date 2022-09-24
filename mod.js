@@ -17,6 +17,7 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import { collectImports } from "./src/collectImports.js";
 import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
+import {red, yellow} from "https://deno.land/std@0.157.0/fmt/colors.ts";
 
 /**
  * @typedef GenerateTypesOptions
@@ -457,19 +458,25 @@ export async function generateTypes(options) {
 			const rawError = await vendorProcess.stderrOutput();
 			const errorString = new TextDecoder().decode(rawError);
 
-			let excludeString = resolvedSpecifier;
+			let excludeString = yellow(resolvedSpecifier);
 			const importSpecifiers = new Set(importDatas.map((d) => d.importSpecifier));
 			const importFilePaths = new Set(importDatas.map((d) => d.importerFilePath));
 			if (importSpecifiers.size == 1) {
 				const importSpecifier = importSpecifiers.values().next().value;
 				if (resolvedSpecifier != importSpecifier) {
-					excludeString = `${importSpecifier}" or "${resolvedSpecifier}`;
+					excludeString = `${yellow(importSpecifier)}" or "${yellow(resolvedSpecifier)}`;
 				}
+			}
+			let importmapMessage;
+			if (userImportMap) {
+				importmapMessage = `Aternatively you can add any offending imports to your import map at "${userImportMap}".`
+			} else {
+				importmapMessage = `Aternatively you can add any offending imports to an import map.`
 			}
 			throw new Error(
 				`${errorString}
 
-Failed to vendor files for ${resolvedSpecifier}. 'deno vendor' exited with status ${status.code}.
+${red(`Failed to vendor files for ${resolvedSpecifier}. 'deno vendor' exited with status ${status.code}.`)}
 The output of the 'deno vendor' command is shown above.
 
 The error occurred while running:
@@ -478,7 +485,9 @@ The error occurred while running:
 ${resolvedSpecifier} was imported in the following files:
 ${Array.from(importFilePaths).map((f) => `  ${f}`).join("\n")}
 
-Consider adding "${excludeString}" to 'excludeUrls' to skip this import.`,
+Consider adding "${excludeString}" to 'excludeUrls' to skip this import.
+${importmapMessage}
+`,
 			);
 		}
 
