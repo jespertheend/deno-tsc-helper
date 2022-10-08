@@ -11,8 +11,19 @@ import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
  * @param {(node: ts.Node, extra: ParseFileAstExtra) => void} [cbNode] The
  * callback that is called for each node in the ast.
  */
-export async function parseFileAst(filePath, cbNode) {
+export async function parseFilePathAst(filePath, cbNode) {
 	const fileContent = await Deno.readTextFile(filePath);
+	return await parseFileAst(fileContent, filePath, cbNode);
+}
+
+/**
+ * Reads a file, parses its ast and traverses it.
+ * @param {string} fileContent
+ * @param {string} filePath
+ * @param {(node: ts.Node, extra: ParseFileAstExtra) => void} [cbNode] The
+ * callback that is called for each node in the ast.
+ */
+export async function parseFileAst(fileContent, filePath, cbNode) {
 	const program = ts.createProgram([filePath], {
 		noResolve: true,
 		target: ts.ScriptTarget.Latest,

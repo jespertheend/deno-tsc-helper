@@ -16,7 +16,7 @@ import {
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import { collectImports } from "./src/collectImports.js";
 import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
-import { parseFileAst } from "./src/parseFileAst.js";
+import { parseFileAst, parseFilePathAst } from "./src/parseFileAst.js";
 import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
 import { createLogger } from "./src/logging.js";
 
@@ -623,7 +623,19 @@ ${importmapMessage}
 	const printer = ts.createPrinter();
 	logger.info("Modifying vendored files");
 	for await (const filePath of readDirRecursive(vendorOutputPath)) {
-		const ast = await parseFileAst(filePath, (node, { sourceFile }) => {
+		const fileContent = await Deno.readTextFile(filePath);
+
+		// Modifying the file is pretty expensive, especially for large files.
+		// This is mostly because the ast needs to be parsed.
+		// Modifying the file multiple times also causes duplicate modifications,
+		// for instance a ts-nocheck comment gets added every time these steps
+		// are run. In order to prevent this, we check if we have modified this
+		// file before and then simply skip these checks.
+		if (fileContent.includes("tsc_helper_modified")) continue;
+
+		logger.debug(`Modifying ${filePath}`);
+
+		const ast = await parseFileAst(fileContent, filePath, (node, { sourceFile }) => {
 			// Collect imports/exports with a deno-types comment
 			if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
 				const commentRanges = ts.getLeadingCommentRanges(sourceFile.text, node.pos);
@@ -653,6 +665,22 @@ ${importmapMessage}
 			transformationResult.transformed[0],
 			ast.getSourceFile(),
 		);
+		let lines = modified.split("\n");
+
+		/**
+		 * The place where comments can safely be inserted without breaking the shebang
+		 */
+		let scriptStart = 0;
+		if (lines.length > 0) {
+			const firstLine = lines[0];
+			if (firstLine.startsWith("#!")) {
+				scriptStart = 1;
+			}
+		}
+
+		// Add a tsc_helper_modified comment so that this file won't be modified again in the future.
+		lines.splice(scriptStart, 0, "// tsc_helper_modified");
+
 		// Add ts-nocheck to suppress type errors for vendored files
 		const castAst = /** @type {typeof ast & {scriptKind: ts.ScriptKind}} */ (ast);
 		const tsNocheckScriptKinds = [
@@ -662,20 +690,13 @@ ${importmapMessage}
 			ts.ScriptKind.TSX,
 		];
 		if (tsNocheckScriptKinds.includes(castAst.scriptKind)) {
-			let lines = modified.split("\n");
-			let insertionIndex = 0;
-			if (lines.length > 0) {
-				const firstLine = lines[0];
-				if (firstLine.startsWith("#!")) {
-					insertionIndex = 1;
-				}
-			}
-			lines.splice(insertionIndex, 0, "// @ts-nocheck");
+			lines.splice(scriptStart, 0, "// @ts-nocheck");
 			// Adding a ts-nocheck comment does not seem to be enough to suppress
 			// errors from missing tripple slash directive files. So we'll remove these.
 			lines = lines.filter((line) => !line.startsWith("/// <reference"));
-			modified = lines.join("\n");
 		}
+
+		modified = lines.join("\n");
 		await Deno.writeTextFile(filePath, modified);
 	}
 

@@ -3,7 +3,7 @@
  */
 
 import { getIncludeExcludeFiles } from "./common.js";
-import { parseFileAst } from "./parseFileAst.js";
+import { parseFilePathAst } from "./parseFileAst.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
 import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
@@ -61,7 +61,7 @@ export async function collectImports({
 	 */
 	const allImports = [];
 	for (const userFile of userFiles) {
-		await parseFileAst(userFile, (node) => {
+		await parseFilePathAst(userFile, (node) => {
 			if (
 				ts.isImportDeclaration(node) && ts.isStringLiteral(node.moduleSpecifier)
 			) {
