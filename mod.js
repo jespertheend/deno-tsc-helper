@@ -474,6 +474,11 @@ export {};
 	await Deno.writeTextFile(temporaryImportMapPath, JSON.stringify(temporaryImportMap));
 
 	for (const [resolvedSpecifier, importDatas] of mergedRemoteImports) {
+		// If we already vendored this specifier in the last run, there's no need
+		// to vendor it again. This should speed things up significantly when there
+		// are a lot of remote imports.
+		if (cachedImportSpecifiers.has(resolvedSpecifier)) continue;
+
 		const cmd = ["deno", "vendor", "--force", "--no-config"];
 		cmd.push("--output", vendorOutputPath);
 		cmd.push("--import-map", temporaryImportMapPath);
