@@ -18,6 +18,7 @@ import { collectImports } from "./src/collectImports.js";
 import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
 import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
+import { createLogger } from "./src/logging.js";
 
 /**
  * @typedef GenerateTypesOptions
@@ -81,7 +82,7 @@ import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
  * If this option is not provided in `generateTypes`, the file at the specfifed location is loaded and used instead
  * of performing the computation again.
  * @property {boolean} [unstable] Whether to include unstable deno apis in the generated types.
- * @property {boolean} [quiet] Whether to suppress output.
+ * @property {import("https://deno.land/std@0.159.0/log/mod.ts").LevelName} [logLevel]
  */
 
 /**
@@ -107,23 +108,18 @@ import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
  */
 export async function createCacheHashFile(options) {
 	const cwd = Deno.cwd();
-	const { quiet, include, exclude, excludeUrls, importMap, cacheHashFile, preCollectedImportsFile, outputDir } =
+	const { logLevel, include, exclude, excludeUrls, importMap, cacheHashFile, preCollectedImportsFile, outputDir } =
 		fillOptionDefaults(
 			options,
 		);
 
-	/**
-	 * @param {Parameters<typeof console.log>} args
-	 */
-	function log(...args) {
-		if (!quiet) console.log(...args);
-	}
+	const logger = createLogger(logLevel);
 
 	if (!cacheHashFile) {
 		throw new Error("The `cacheHashFile` option is required when making use of `createCacheHashFile`.");
 	}
 
-	log("Collecting import specifiers from script files");
+	logger.info("Collecting import specifiers from script files");
 
 	const { userImportMap } = await loadImportMap(importMap, cwd);
 	const collectedImportData = await collectImports({
@@ -165,14 +161,14 @@ export async function createCacheHashFile(options) {
 
 	const cacheHashFilePath = resolve(absoluteOutputDirPath, cacheHashFile);
 	await Deno.writeTextFile(cacheHashFilePath, cacheHashContent);
-	log(`Created cache hash file at ${cacheHashFilePath}`);
+	logger.debug(`Created cache hash file at ${cacheHashFilePath}`);
 
 	if (preCollectedImportsFile) {
 		const preCollectedImportsFilePath = resolve(absoluteOutputDirPath, preCollectedImportsFile);
 		await Deno.writeTextFile(preCollectedImportsFilePath, JSON.stringify(collectedImportData, null, "\t"), {
 			create: true,
 		});
-		log(`Collected imports file written to ${preCollectedImportsFilePath}`);
+		logger.info(`Collected imports file written to ${preCollectedImportsFilePath}`);
 	}
 }
 
@@ -192,16 +188,11 @@ export async function generateTypes(options) {
 		exactTypeModules,
 		outputDir,
 		unstable,
-		quiet,
+		logLevel,
 		preCollectedImportsFile,
 	} = fillOptionDefaults(options);
 
-	/**
-	 * @param {Parameters<typeof console.log>} args
-	 */
-	function log(...args) {
-		if (!quiet) console.log(...args);
-	}
+	const logger = createLogger(logLevel);
 
 	const absoluteOutputDirPath = resolve(cwd, outputDir);
 
@@ -288,7 +279,7 @@ export {};
 	const typeRootsDirPath = resolve(absoluteOutputDirPath, "@types");
 	const desiredDenoTypesVersion = Deno.version.deno + (unstable ? "-unstable" : "");
 	if (denoTypesVersion != desiredDenoTypesVersion) {
-		log("Generating Deno types");
+		logger.info("Generating Deno types");
 		const denoTypesCmd = ["deno", "types"];
 		if (unstable) denoTypesCmd.push("--unstable");
 		const getDenoTypesProcess = Deno.run({
@@ -324,7 +315,7 @@ export {};
 	const newFetchedTypeRoots = {};
 	for (const [folderName, url] of Object.entries(extraTypeRoots)) {
 		if (cachedTypeRoots[folderName] != url) {
-			log(`Fetching type root ${folderName}`);
+			logger.debug(`Fetching type root ${folderName}`);
 			const response = await fetch(url);
 			if (!response.ok) {
 				throw new Error(
@@ -351,7 +342,7 @@ export {};
 	const exactTypesDirPath = resolve(absoluteOutputDirPath, "exactTypes");
 	for (const [specifier, url] of Object.entries(exactTypeModules)) {
 		if (cachedExactTypeModules[specifier] != url) {
-			log(`Fetching npm types for ${specifier}`);
+			logger.debug(`Fetching npm types for ${specifier}`);
 			const response = await fetch(url);
 			if (!response.ok) {
 				throw new Error(
@@ -395,12 +386,12 @@ export {};
 			}
 			preCollectedImports = preCollectedImportsJson;
 		} else {
-			log(`No pre-collected imports file was found at ${preCollectedImportsFilePath}.`);
+			logger.warning(`No pre-collected imports file was found at ${preCollectedImportsFilePath}.`);
 		}
 	}
 
 	if (!preCollectedImports) {
-		log("Collecting import specifiers from script files");
+		logger.info("Collecting import specifiers from script files");
 		preCollectedImports = await collectImports({
 			baseDir: cwd,
 			include,
@@ -422,7 +413,7 @@ export {};
 		}
 
 		if (allCached) {
-			log("No imports have changed since the last run");
+			logger.info("No imports have changed since the last run");
 			// TODO: Don't return here, instead only vendor the specifiers that have
 			// changed. #18
 			// If no specifiers have changed that doesn't necessarily mean that
@@ -463,6 +454,8 @@ export {};
 		arr.push(remoteImport);
 	}
 
+	logger.info("Vendoring collected import urls.");
+
 	const temporaryImportMapPath = resolve("tmp_tsc_helper_import_map.json");
 	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ImportMapData} */
 	let temporaryImportMap = {};
@@ -485,7 +478,7 @@ export {};
 		cmd.push("--output", vendorOutputPath);
 		cmd.push("--import-map", temporaryImportMapPath);
 		cmd.push(resolvedSpecifier);
-		log(`Vendoring ${resolvedSpecifier}`);
+		logger.debug(`Vendoring ${resolvedSpecifier}`);
 		const vendorProcess = Deno.run({
 			cmd,
 			stdout: "null",
@@ -623,7 +616,7 @@ ${importmapMessage}
 
 	const denoTypesRegex = /\/\/\s*@deno-types\s*=\s*"(?<url>.*)"/;
 	const printer = ts.createPrinter();
-	log("Modifying vendored files");
+	logger.info("Modifying vendored files");
 	for await (const filePath of readDirRecursive(vendorOutputPath)) {
 		const ast = await parseFileAst(filePath, (node, { sourceFile }) => {
 			// Collect imports/exports with a deno-types comment
@@ -681,7 +674,7 @@ ${importmapMessage}
 		await Deno.writeTextFile(filePath, modified);
 	}
 
-	log("Fetching .d.ts files for vendored files.");
+	logger.debug("Fetching .d.ts files for vendored files.");
 	const dtsFetchPromises = [];
 	// We'll use an empty import map for resolving the urls in @deno-types comments.
 	// Otherwise the urls end up resolving to the local file system since the types url is
@@ -695,7 +688,7 @@ ${importmapMessage}
 				// The types url is already pointing to a local file, so we don't need to fetch it.
 				return;
 			}
-			log(`Fetching ${denoTypesUrl}`);
+			logger.debug(`Fetching ${denoTypesUrl}`);
 			const response = await fetch(denoTypesUrl);
 			const text = await response.text();
 			const dtsDestination = resolveModuleSpecifierAll(baseUrl, moduleSpecifier);
@@ -723,7 +716,7 @@ ${importmapMessage}
 	const tsConfigPaths = [];
 
 	if (needsAmbientModuleImportSpecifiers.length > 0) {
-		log("Creating ambient modules for excluded urls");
+		logger.debug("Creating ambient modules for excluded urls");
 		const ambientModulesDirPath = resolve(typeRootsDirPath, "deno-tsc-helper-ambient-modules");
 		await Deno.mkdir(ambientModulesDirPath, { recursive: true });
 		const ambientModulesFilePath = resolve(ambientModulesDirPath, "index.d.ts");
@@ -759,7 +752,7 @@ ${importmapMessage}
 	}
 
 	// Add tsconfig.json
-	log("Creating tsconfig.json");
+	logger.debug("Creating tsconfig.json");
 	const tsconfigPath = join(absoluteOutputDirPath, "tsconfig.json");
 	/** @type {Object.<string, string[]>} */
 	const tsConfigPathsObject = {};
@@ -786,5 +779,5 @@ ${importmapMessage}
 		});
 	}
 
-	log("Done creating types for remote imports.");
+	logger.info("Done creating types for remote imports.");
 }

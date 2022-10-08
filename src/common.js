@@ -73,7 +73,7 @@ export function fillOptionDefaults({
 	unstable = false,
 	extraTypeRoots = {},
 	exactTypeModules = {},
-	quiet = false,
+	logLevel = "INFO",
 } = {}) {
 	return {
 		include,
@@ -86,7 +86,7 @@ export function fillOptionDefaults({
 		unstable,
 		extraTypeRoots,
 		exactTypeModules,
-		quiet,
+		logLevel,
 	};
 }
 
