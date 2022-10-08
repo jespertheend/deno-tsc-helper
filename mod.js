@@ -31,6 +31,11 @@ import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
  * If you are using an import map, you can also use the specifier from the import map.
  * An [ambient module](https://www.typescriptlang.org/docs/handbook/modules.html#shorthand-ambient-modules)
  * will be created that contains no types for each excluded url.
+ * Additionally, when vendoring, a temporary import map is created containing
+ * each of the excluded urls pointing to a dummy module. This way, if a module
+ * is failing to vendor, but you would still like to use its types, you can
+ * provide the specific url at which the module fails. That way only the failing
+ * portion of a module is excluded.
  * @property {string?} [importMap] A path to the import map to use. If provided, the paths in the generated
  * tsconfig.json will be set to values in the import map.
  * @property {Object.<string, string>} [extraTypeRoots] Allows you to provide extra type roots
@@ -260,6 +265,25 @@ export async function generateTypes(options) {
 
 	await createTypesDir(absoluteOutputDirPath);
 
+	let hasDummyModule = true;
+	const dummyModulePath = resolve(absoluteOutputDirPath, "dummyModule.js");
+	try {
+		await Deno.stat(dummyModulePath);
+	} catch {
+		hasDummyModule = false;
+	}
+	if (!hasDummyModule) {
+		await Deno.writeTextFile(
+			dummyModulePath,
+			`// This is an empty module which is used for replacing modules that causes 'deno vendor' to fail.
+// The path to this module is added to a temporary import map when vendoring.
+// Every path added to the 'excludeUrls' option gets added to the import map with this module as its destination.
+export default {};
+export {};
+`,
+		);
+	}
+
 	// Add deno types file from the `deno types` command.
 	const typeRootsDirPath = resolve(absoluteOutputDirPath, "@types");
 	const desiredDenoTypesVersion = Deno.version.deno + (unstable ? "-unstable" : "");
@@ -439,12 +463,27 @@ export async function generateTypes(options) {
 		arr.push(remoteImport);
 	}
 
+	const temporaryImportMapPath = resolve("tmp_tsc_helper_import_map.json");
+	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ImportMapData} */
+	let temporaryImportMap = {};
+	if (userImportMapPath) {
+		const text = await Deno.readTextFile(userImportMapPath);
+		temporaryImportMap = JSON.parse(text);
+	}
+	if (!temporaryImportMap.imports) {
+		temporaryImportMap.imports = {};
+	}
+	if (temporaryImportMap.imports) {
+		for (const url of excludeUrls) {
+			temporaryImportMap.imports[url] = toFileUrl(dummyModulePath).href;
+		}
+	}
+	await Deno.writeTextFile(temporaryImportMapPath, JSON.stringify(temporaryImportMap));
+
 	for (const [resolvedSpecifier, importDatas] of mergedRemoteImports) {
 		const cmd = ["deno", "vendor", "--force", "--no-config"];
 		cmd.push("--output", vendorOutputPath);
-		if (userImportMapPath) {
-			cmd.push("--import-map", userImportMapPath);
-		}
+		cmd.push("--import-map", temporaryImportMapPath);
 		cmd.push(resolvedSpecifier);
 		log(`Vendoring ${resolvedSpecifier}`);
 		const vendorProcess = Deno.run({
@@ -501,6 +540,8 @@ ${importmapMessage}
 		const parsedImportMap = parseImportMap(importMapJson, importMapBaseUrl);
 		parsedImportMaps.push(parsedImportMap);
 	}
+
+	await Deno.remove(temporaryImportMapPath);
 
 	/**
 	 * Loops over all the parsed import maps and returns the resolved specifier
