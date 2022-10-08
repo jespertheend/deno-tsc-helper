@@ -1,5 +1,5 @@
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
-import { createEmptyImportMap, parseImportMap } from "https://deno.land/x/import_maps@v0.0.3/mod.js";
+import { createEmptyImportMap, parseImportMap } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
 
 /**
  * Creates the types directory and populates it with some default files such

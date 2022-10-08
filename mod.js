@@ -12,7 +12,7 @@ import {
 	createEmptyImportMap,
 	parseImportMap,
 	resolveModuleSpecifier,
-} from "https://deno.land/x/import_maps@v0.0.3/mod.js";
+} from "https://deno.land/x/import_maps@v0.1.1/mod.js";
 import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
 import { collectImports } from "./src/collectImports.js";
 import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
@@ -435,7 +435,7 @@ export {};
 
 	const vendorOutputPath = resolve(absoluteOutputDirPath, "vendor");
 	const importMapPath = join(vendorOutputPath, "import_map.json");
-	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ParsedImportMap[]} */
+	/** @type {import("https://deno.land/x/import_maps@v0.1.1/mod.js").ParsedImportMap[]} */
 	const parsedImportMaps = [];
 
 	/**
@@ -457,7 +457,7 @@ export {};
 	logger.info("Vendoring collected import urls.");
 
 	const temporaryImportMapPath = resolve("tmp_tsc_helper_import_map.json");
-	/** @type {import("https://deno.land/x/import_maps@v0.0.3/mod.js").ImportMapData} */
+	/** @type {import("https://deno.land/x/import_maps@v0.1.1/mod.js").ImportMapData} */
 	let temporaryImportMap = {};
 	if (userImportMapPath) {
 		const text = await Deno.readTextFile(userImportMapPath);
