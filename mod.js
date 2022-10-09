@@ -742,6 +742,30 @@ ${importmapMessage}
 	}
 	await Promise.allSettled(dtsFetchPromises);
 
+	const tsconfigPath = join(absoluteOutputDirPath, "tsconfig.json");
+
+	/** @type {Object.<string, string[]>} */
+	let tsConfigPathsObject = {};
+
+	// First we check for an existing tsconfig and its paths, since we don't want to override this.
+	let existingTsConfigText;
+	try {
+		existingTsConfigText = await Deno.readTextFile(tsconfigPath);
+	} catch (e) {
+		if (!(e instanceof Deno.errors.NotFound)) {
+			throw e;
+		}
+	}
+	if (existingTsConfigText) {
+		let existingTsConfig;
+		try {
+			existingTsConfig = JSON.parse(existingTsConfigText);
+		} catch {
+			throw new Error(`Failed to parse existing tsconfig at "${tsconfigPath}".`);
+		}
+		tsConfigPathsObject = existingTsConfig.compilerOptions?.paths || {};
+	}
+
 	/**
 	 * A list of paths that should be added to the generated tsconfig.json.
 	 * @type {[string, string][]}
@@ -786,9 +810,6 @@ ${importmapMessage}
 
 	// Add tsconfig.json
 	logger.debug("Creating tsconfig.json");
-	const tsconfigPath = join(absoluteOutputDirPath, "tsconfig.json");
-	/** @type {Object.<string, string[]>} */
-	const tsConfigPathsObject = {};
 	for (const [url, path] of tsConfigPaths) {
 		tsConfigPathsObject[url] = [path];
 	}
