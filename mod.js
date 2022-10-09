@@ -619,6 +619,13 @@ ${importmapMessage}
 	/** @type {CollectedDtsFile[]} */
 	const collectedDtsFiles = [];
 
+	/**
+	 * The comment to look for to determine if the vendored file has already
+	 * been modified. The string is split in two parts and concatenated in order
+	 * to prevent tsc helper from incorrectly marking itself as already modified.
+	 */
+	const modifiedComment = "// tsc_" + "helper_modified";
+
 	const denoTypesRegex = /\/\/\s*@deno-types\s*=\s*"(?<url>.*)"/;
 	const printer = ts.createPrinter();
 	logger.info("Modifying vendored files");
@@ -631,7 +638,7 @@ ${importmapMessage}
 		// for instance a ts-nocheck comment gets added every time these steps
 		// are run. In order to prevent this, we check if we have modified this
 		// file before and then simply skip these checks.
-		if (fileContent.includes("tsc_helper_modified")) continue;
+		if (fileContent.includes(modifiedComment)) continue;
 
 		logger.debug(`Modifying ${filePath}`);
 
@@ -678,8 +685,8 @@ ${importmapMessage}
 			}
 		}
 
-		// Add a tsc_helper_modified comment so that this file won't be modified again in the future.
-		lines.splice(scriptStart, 0, "// tsc_helper_modified");
+		// Add a the modified tag so that this file won't be modified again in the future.
+		lines.splice(scriptStart, 0, modifiedComment);
 
 		// Add ts-nocheck to suppress type errors for vendored files
 		const castAst = /** @type {typeof ast & {scriptKind: ts.ScriptKind}} */ (ast);
