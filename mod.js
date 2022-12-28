@@ -27,6 +27,9 @@ import { fetchNpmPackage, splitNameAndVersion } from "https://deno.land/x/npm_fe
  * @property {string[]} [include] A list of local paths to parse the imports from.
  * Any import statement found in any of these .ts or .js files will be collected and their
  * types will be fetched and added to the generated tsconfig.json.
+ * Note that the module graph is not traversed, i.e. only the imports of files and
+ * directories in this array are checked. Imported files are not checked.
+ * If the path to a directory is provided, then its contents are checked recursively.
  * @property {string[]} [exclude] A list of local paths to exclude. Any file in this list
  * will not be parsed. This defaults to [".denoTypes", "node_modules"].
  * @property {string[]} [excludeUrls] A list of urls to ignore when fetching types.
