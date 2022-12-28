@@ -482,9 +482,21 @@ export {};
 		temporaryImportMap.imports = {};
 	}
 	if (temporaryImportMap.imports) {
+		const dummyUrl = toFileUrl(dummyModulePath).href;
 		for (const url of excludeUrls) {
-			temporaryImportMap.imports[url] = toFileUrl(dummyModulePath).href;
+			temporaryImportMap.imports[url] = dummyUrl;
 		}
+
+		// See https://github.com/denoland/deno/issues/17210
+		// Deno currently panics when vendoring remote imports that contain npm specifiers.
+		// And since deno_tsc_helper is likely going to be vendored by the user, we'll
+		// exclude the typescript import, which is the only npm specifier this module uses.
+		// This way at least deno_tsc_helper can be vendored without any configuration by the user.
+		// Unfortunately any other modules importing npm specifiers will have to be manually excluded
+		// by the user in order to prevent panics.
+		// Though this is likely pretty rare at the moment since npm specifiers in remote modules still requires
+		// the --unstable flag for now.
+		temporaryImportMap.imports["npm:typescript@4.7.4"] = dummyUrl;
 	}
 	await Deno.writeTextFile(temporaryImportMapPath, JSON.stringify(temporaryImportMap));
 
