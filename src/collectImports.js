@@ -4,7 +4,7 @@
 
 import { getIncludeExcludeFiles } from "./common.js";
 import { parseFilePathAst } from "./parseFileAst.js";
-import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
+import ts from "npm:typescript@4.7.4";
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
 import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
 
@@ -91,11 +91,6 @@ export async function collectImports({
 
 		if (excludeUrls.includes(resolvedSpecifier.href)) continue;
 		if (resolvedSpecifier.protocol == "file:") continue;
-
-		// Deno doesn't support vendoring npm modules at the moment so this will
-		// always fail. If users want to fetch types for `npm:` imports, they
-		// should use the `exactTypeModules` option.
-		if (resolvedSpecifier.protocol == "npm:") continue;
 
 		remoteImports.push({
 			importerFilePath,

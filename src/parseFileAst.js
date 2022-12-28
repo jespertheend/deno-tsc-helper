@@ -1,4 +1,4 @@
-import ts from "https://esm.sh/typescript@4.7.4?pin=v87";
+import ts from "npm:typescript@4.7.4";
 
 /**
  * @typedef ParseFileAstExtra

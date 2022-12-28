@@ -14,4 +14,5 @@ await generateTypes({
 		"./dev.js",
 		"./mod.js",
 	],
+	logLevel: "DEBUG",
 });
