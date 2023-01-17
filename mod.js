@@ -44,6 +44,7 @@ import { fetchNpmPackage, splitNameAndVersion } from "https://deno.land/x/npm_fe
  * portion of a module is excluded.
  * @property {string?} [importMap] A path to the import map to use. If provided, the paths in the generated
  * tsconfig.json will be set to values in the import map.
+ * @property {Object.<string, string[]>} [extraPaths] A set of extra paths that will be added to the generated tsconfig.
  * @property {Object.<string, string>} [extraTypeRoots] Allows you to provide extra type roots
  * which will be fetched and placed in the `@types` directory.
  * @property {Object<string, string>} [exactTypeModules] This is mostly useful for
@@ -189,6 +190,7 @@ export async function generateTypes(options) {
 		exclude,
 		excludeUrls,
 		importMap,
+		extraPaths,
 		extraTypeRoots,
 		exactTypeModules,
 		outputDir,
@@ -875,6 +877,9 @@ ${importmapMessage}
 	logger.debug("Creating tsconfig.json");
 	for (const [url, path] of tsConfigPaths) {
 		tsConfigPathsObject[url] = [path];
+	}
+	for (const [url, paths] of Object.entries(extraPaths)) {
+		tsConfigPathsObject[url] = paths;
 	}
 	const tsconfigContent = JSON.stringify(
 		{
