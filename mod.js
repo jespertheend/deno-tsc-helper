@@ -294,6 +294,7 @@ export {};
 			stdout: "piped",
 		});
 		const typesBuffer = await getDenoTypesProcess.output();
+		getDenoTypesProcess.close();
 		const typesContent = new TextDecoder().decode(typesBuffer);
 		let lines = typesContent.split("\n");
 		// Remove tripple slash directives as this causes errors since the files
@@ -587,7 +588,10 @@ Consider adding "${excludeString}" to 'excludeUrls' to skip this import.
 ${importmapMessage}
 `,
 				);
+			} else {
+				vendorProcess.stderr.close();
 			}
+			vendorProcess.close();
 
 			// Since we're calling `deno vendor` with `--force`, the generated import map
 			// will be overwritten every time we run `deno vendor`.

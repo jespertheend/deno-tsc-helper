@@ -2,7 +2,7 @@
 
 /**
  * @fileoverview This serves as both a usage example as well as for generating
- * types for ./generateTypes.js itself.
+ * types for ./mod.js itself.
  */
 
 import { generateTypes } from "./mod.js";
@@ -13,6 +13,7 @@ await generateTypes({
 	include: [
 		"./dev.js",
 		"./mod.js",
+		"./test"
 	],
 	logLevel: "DEBUG",
 });

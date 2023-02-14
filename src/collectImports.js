@@ -65,7 +65,8 @@ export async function collectImports({
 		if (sourceFile) {
 			// Imports is marked as internal, but we could really use them here.
 			// We'll just have to keep in mind this might break when we update TypeScript.
-			const castSourceFile = /** @type {import("npm:typescript@4.7.4").SourceFile & {imports: readonly import("npm:typescript@4.7.4").StringLiteralLike[]}} */ (sourceFile);
+			const castSourceFile =
+				/** @type {import("npm:typescript@4.7.4").SourceFile & {imports: readonly import("npm:typescript@4.7.4").StringLiteralLike[]}} */ (sourceFile);
 			for (const importLiteral of castSourceFile.imports) {
 				allImports.push({
 					importerFilePath: userFile,
