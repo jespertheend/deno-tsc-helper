@@ -8,5 +8,13 @@
 			"indentWidth": 4,
 			"lineWidth": 120
 		}
+	},
+	"lint": {
+		"files": {
+			"exclude": [".denoTypes"]
+		},
+		"rules": {
+			"exclude": ["no-inner-declarations"]
+		}
 	}
 }

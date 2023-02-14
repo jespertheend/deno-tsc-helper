@@ -114,19 +114,6 @@ function createNotAny() {
 	`;
 }
 
-const thisIsAny = /** @type {any} */ ("sldkfj");
-const thisIsNotAny = "sdlfkj";
-
-(function () {
-	/** @param {boolean} variable */
-	function expectsBool(variable) {}
-	/** @param {string} variable */
-	function expectsString(variable) {}
-
-	expectsBool(thisIsAny);
-	expectsString(thisIsNotAny);
-})();
-
 Deno.test({
 	name: "Basic type generation",
 	async fn() {

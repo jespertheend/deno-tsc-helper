@@ -13,7 +13,7 @@ import ts from "npm:typescript@4.7.4";
  */
 export async function parseFilePathAst(filePath, cbNode) {
 	const fileContent = await Deno.readTextFile(filePath);
-	return await parseFileAst(fileContent, filePath, cbNode);
+	return parseFileAst(fileContent, filePath, cbNode);
 }
 
 /**
@@ -23,7 +23,7 @@ export async function parseFilePathAst(filePath, cbNode) {
  * @param {(node: ts.Node, extra: ParseFileAstExtra) => void} [cbNode] The
  * callback that is called for each node in the ast.
  */
-export async function parseFileAst(fileContent, filePath, cbNode) {
+export function parseFileAst(fileContent, filePath, cbNode) {
 	const program = ts.createProgram([filePath], {
 		noResolve: true,
 		target: ts.ScriptTarget.Latest,

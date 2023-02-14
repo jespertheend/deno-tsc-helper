@@ -4,7 +4,6 @@
 
 import { getIncludeExcludeFiles } from "./common.js";
 import { parseFilePathAst } from "./parseFileAst.js";
-import ts from "npm:typescript@4.7.4";
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
 import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
 

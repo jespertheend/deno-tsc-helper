@@ -384,7 +384,7 @@ export {};
 			let preCollectedImportsJson = null;
 			try {
 				preCollectedImportsJson = JSON.parse(preCollectedImportsStr);
-			} catch (e) {
+			} catch {
 				throw new Error(
 					`The file at ${preCollectedImportsFilePath} appears to be corrupt and couldn't be parsed.`,
 				);
