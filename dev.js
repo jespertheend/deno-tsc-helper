@@ -13,7 +13,7 @@ await generateTypes({
 	include: [
 		"./dev.js",
 		"./mod.js",
-		"./test"
+		"./test",
 	],
 	logLevel: "DEBUG",
 });
