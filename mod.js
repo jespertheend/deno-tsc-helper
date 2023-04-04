@@ -632,7 +632,8 @@ ${importmapMessage}
 		for (const importMap of parsedImportMaps) {
 			const resolved = resolveModuleSpecifier(importMap, baseUrl, moduleSpecifier);
 			if (resolved.protocol !== "file:") continue;
-			const commonPath = resolve(common([resolved.pathname, absoluteOutputDirPath]));
+			const resolvedPath = fromFileUrl(resolved.href);
+			const commonPath = resolve(common([resolvedPath, absoluteOutputDirPath]));
 			if (commonPath != absoluteOutputDirPath) continue;
 
 			return resolved;
