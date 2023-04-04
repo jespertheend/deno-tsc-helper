@@ -877,8 +877,8 @@ ${importmapMessage}
 		// If the resolved location doesn't point to something inside
 		// the .denoTypes directory, we don't need to do anything.
 		if (!vendorResolvedSpecifier) continue;
-
-		tsConfigPaths.push([importSpecifier, vendorResolvedSpecifier.pathname]);
+		const pathname = fromFileUrl(vendorResolvedSpecifier);
+		tsConfigPaths.push([importSpecifier, pathname]);
 	}
 
 	for (const [specifier, path] of fetchedExactTypeModulesPathMappings) {
