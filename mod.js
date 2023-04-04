@@ -671,7 +671,9 @@ ${importmapMessage}
 						const oldSpecifier = node.text;
 						const resolvedUrl = resolveModuleSpecifierAll(baseUrl, oldSpecifier);
 						if (resolvedUrl) {
-							newSpecifier = resolvedUrl.pathname;
+							// Resolved urls should always be absolute. So we don't need the file:// prefix here I think.
+							// Either way, TypeScript doesn't seem to have support for resolving file:// specifiers.
+							newSpecifier = fromFileUrl(resolvedUrl.href);
 						}
 						if (newSpecifier && newSpecifier.endsWith(".ts")) {
 							newSpecifier = newSpecifier.slice(0, -3) + ".js";
@@ -722,7 +724,7 @@ ${importmapMessage}
 
 		logger.debug(`Modifying ${filePath}`);
 
-		const ast = await parseFileAst(fileContent, filePath, (node, { sourceFile }) => {
+		const ast = parseFileAst(fileContent, filePath, (node, { sourceFile }) => {
 			// Collect imports/exports with a deno-types comment
 			if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier) {
 				const commentRanges = ts.getLeadingCommentRanges(sourceFile.text, node.pos);
