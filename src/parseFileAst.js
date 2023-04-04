@@ -1,4 +1,5 @@
 import ts from "npm:typescript@4.7.4";
+import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
 
 /**
  * @typedef ParseFileAstExtra
@@ -36,7 +37,8 @@ export function parseFileAst(fileContent, filePath, cbNode) {
 		getDefaultLibFileName: () => "lib.d.ts",
 		getNewLine: () => "\n",
 		getSourceFile: (fileName) => {
-			if (fileName === filePath) {
+			// Normalizing is required to make the two paths match on Windows.
+			if (path.normalize(fileName) === filePath) {
 				return ts.createSourceFile(
 					fileName,
 					fileContent,
