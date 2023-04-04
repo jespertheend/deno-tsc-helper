@@ -162,3 +162,11 @@ export async function loadImportMap(importMap, cwd) {
 		userImportMapPath,
 	};
 }
+
+/**
+ * Strips characters that are not allowed in file paths on some platforms.
+ * @param {string} name
+ */
+export function sanitizeFileName(name) {
+	return name.replace(/[/\\?%*:|"<>]/g, "_");
+}

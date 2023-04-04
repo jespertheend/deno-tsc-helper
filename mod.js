@@ -16,7 +16,7 @@ import {
 } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
 import ts from "npm:typescript@4.7.4";
 import { collectImports } from "./src/collectImports.js";
-import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive } from "./src/common.js";
+import { createTypesDir, fillOptionDefaults, loadImportMap, readDirRecursive, sanitizeFileName } from "./src/common.js";
 import { parseFileAst } from "./src/parseFileAst.js";
 import { red, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
 import { createLogger } from "./src/logging.js";
@@ -345,10 +345,26 @@ export {};
 
 	// Clear the cache in case anything goes wrong.
 	await updateCacheData({ fetchedExactTypeModules: {} });
-	/** @type {Object<string, string>} */
+	/**
+	 * The new `fetchedExactTypeModules` value that will eventually replace the old one.
+	 * @type {Object<string, string>}
+	 */
 	const newFetchedExactTypeModules = {};
+	/**
+	 * A collection that maps specifiers to the absolute path of the file that it should point to.
+	 * @type {Map<string, string>}
+	 */
+	const fetchedExactTypeModulesPathMappings = new Map();
 	const exactTypesDirPath = resolve(absoluteOutputDirPath, "exactTypes");
 	for (const [specifier, url] of Object.entries(exactTypeModules)) {
+		// Note that this sanitization can cause different specifiers to point to the same file.
+		// i.e. 'my:specifier' and 'my%specifier' will both end up being sanitized to 'my_specifier'.
+		// But this case seems pretty rare so this will do for now.
+		const sanitizedSpecifier = sanitizeFileName(specifier);
+		const dirPath = resolve(exactTypesDirPath, sanitizedSpecifier);
+		const filePath = resolve(dirPath, "index.d.ts");
+		fetchedExactTypeModulesPathMappings.set(specifier, filePath);
+
 		if (cachedExactTypeModules[specifier] != url) {
 			logger.debug(`Fetching exact types for ${specifier}`);
 			const response = await fetch(url);
@@ -357,9 +373,7 @@ export {};
 					`Failed to fetch exact types for ${specifier}, the server responded with status code ${response.status}.`,
 				);
 			}
-			const dirPath = resolve(exactTypesDirPath, specifier);
 			await ensureDir(dirPath);
-			const filePath = resolve(dirPath, "index.d.ts");
 			await Deno.writeTextFile(filePath, await response.text());
 		}
 		newFetchedExactTypeModules[specifier] = url;
@@ -866,10 +880,10 @@ ${importmapMessage}
 		tsConfigPaths.push([importSpecifier, vendorResolvedSpecifier.pathname]);
 	}
 
-	for (const specifier of Object.keys(newFetchedExactTypeModules)) {
+	for (const [specifier, path] of fetchedExactTypeModulesPathMappings) {
 		tsConfigPaths.push([
 			specifier,
-			resolve(exactTypesDirPath, specifier, "index.d.ts"),
+			path,
 		]);
 	}
 
