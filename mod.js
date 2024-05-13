@@ -287,7 +287,7 @@ export {};
 	const desiredDenoTypesVersion = Deno.version.deno + (unstable ? "-unstable" : "");
 	if (denoTypesVersion != desiredDenoTypesVersion) {
 		logger.info("Generating Deno types");
-		const denoTypesCmd = ["deno", "types"];
+		const denoTypesCmd = [Deno.execPath(), "types"];
 		if (unstable) denoTypesCmd.push("--unstable");
 		const getDenoTypesProcess = Deno.run({
 			cmd: denoTypesCmd,
@@ -554,7 +554,7 @@ export {};
 				}
 			}
 		} else {
-			const cmd = ["deno", "vendor", "--force", "--no-config"];
+			const cmd = [Deno.execPath(), "vendor", "--force", "--no-config"];
 			cmd.push("--output", vendorOutputPath);
 			cmd.push("--import-map", temporaryImportMapPath);
 			cmd.push(resolvedSpecifier);
