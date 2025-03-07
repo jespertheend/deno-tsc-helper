@@ -13,3 +13,4 @@ export function createLogger(level) {
 	});
 	return logger;
 }
+export { Logger };
