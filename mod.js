@@ -575,6 +575,9 @@ export {};
 				const importFilePaths = new Set(importDatas.map((d) => d.importerFilePath));
 				if (importSpecifiers.size == 1) {
 					const importSpecifier = importSpecifiers.values().next().value;
+					if (!importSpecifier) {
+						throw new Error("Assertion failed, importSpecifier is undefined");
+					}
 					if (resolvedSpecifier != importSpecifier) {
 						excludeString = `${yellow(importSpecifier)}" or "${yellow(resolvedSpecifier)}`;
 					}
