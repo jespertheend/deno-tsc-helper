@@ -1,5 +1,6 @@
 import {
 	common,
+	dirname,
 	format,
 	fromFileUrl,
 	join,
@@ -524,23 +525,25 @@ export {};
 
 			const absoluteTypesPath = resolve("/", typesPath);
 			logger.debug(`Fetching types for ${resolvedSpecifier}`);
+			const npmPackageDestinationDir = resolve(
+				absoluteOutputDirPath,
+				"npmTypes",
+				packageData.packageName,
+				packageData.version,
+			);
+			await ensureDir(npmPackageDestinationDir);
 			for await (const entry of packageData.getPackageContents()) {
+				if (entry.type != "file") continue;
+				const destinationPath = resolve(npmPackageDestinationDir, entry.fileName);
+				const destinationDir = dirname(destinationPath);
+				await ensureDir(destinationDir);
+				await ensureFile(destinationPath);
+				const file = await Deno.open(destinationPath, { write: true });
+				await streams.copy(entry, file);
+				file.close();
+
 				const resolved = resolve("/", entry.fileName);
 				if (resolved == absoluteTypesPath) {
-					const destinationDir = resolve(
-						absoluteOutputDirPath,
-						"npmTypes",
-						packageData.packageName,
-						packageData.version,
-					);
-					await ensureDir(destinationDir);
-					const destinationPath = resolve(destinationDir, entry.fileName);
-
-					await ensureFile(destinationPath);
-					const file = await Deno.open(destinationPath, { write: true });
-					await streams.copy(entry, file);
-					file.close();
-
 					for (const importData of importDatas) {
 						npmImports.set(importData.importSpecifier, destinationPath);
 					}
