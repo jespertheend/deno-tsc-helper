@@ -1,18 +1,12 @@
 {
 	"fmt": {
-		"files": {
-			"exclude": [".denoTypes"]
-		},
-		"options": {
-			"useTabs": true,
-			"indentWidth": 4,
-			"lineWidth": 120
-		}
+		"exclude": [".denoTypes", ".github/**/*.yml"],
+		"useTabs": true,
+		"indentWidth": 4,
+		"lineWidth": 120
 	},
 	"lint": {
-		"files": {
-			"exclude": [".denoTypes"]
-		},
+		"exclude": [".denoTypes"],
 		"rules": {
 			"exclude": ["no-inner-declarations"]
 		}

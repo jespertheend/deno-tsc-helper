@@ -150,6 +150,7 @@ export async function loadImportMap(importMap, cwd) {
 	let userImportMap;
 	if (userImportMapPath) {
 		const userImportMapStr = await Deno.readTextFile(userImportMapPath);
+		/** @type {import("https://deno.land/x/import_maps@v0.1.1/mod.js").ImportMapData} */
 		const userImportMapJson = JSON.parse(userImportMapStr);
 		const baseUrl = new URL(path.toFileUrl(userImportMapPath));
 		userImportMap = parseImportMap(userImportMapJson, baseUrl);

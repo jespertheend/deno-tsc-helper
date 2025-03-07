@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run -A
+#!/usr/bin/env -S deno run -A --no-lock
 
 /**
  * @fileoverview This serves as both a usage example as well as for generating
