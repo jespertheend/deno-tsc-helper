@@ -83,7 +83,13 @@ export async function modifyVendoredFiles({ logger, vendorOutputPath, resolveMod
 	/** @type {CollectedDtsFile[]} */
 	const collectedDtsFiles = [];
 
+	// readDirRecursive seems to skip some entries when you modify files as you are iterating over them.
+	// So we'll store all paths in an array before making our modifications.
+	const filePaths = [];
 	for await (const filePath of readDirRecursive(vendorOutputPath)) {
+		filePaths.push(filePath);
+	}
+	for (const filePath of filePaths) {
 		const fileContent = await Deno.readTextFile(filePath);
 
 		// Modifying the file is pretty expensive, especially for large files.
