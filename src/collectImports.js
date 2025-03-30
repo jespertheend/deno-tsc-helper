@@ -5,7 +5,7 @@
 import { getIncludeExcludeFiles } from "./common.js";
 import { parseFilePathAst } from "./parseFileAst.js";
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
-import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
+import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.2.0/mod.js";
 
 /**
  * @typedef ImportData
@@ -33,7 +33,7 @@ import { resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.1.1/m
  * @param {string[]} options.include List of paths to include.
  * @param {string[]} options.exclude List of paths to exclude.
  * @param {string[]} options.excludeUrls List of urls to exclude from the remoteImports result.
- * @param {import("https://deno.land/x/import_maps@v0.1.1/mod.js").ParsedImportMap} options.userImportMap,
+ * @param {import("https://deno.land/x/import_maps@v0.2.0/mod.js").ParsedImportMap} options.userImportMap,
  * @returns {Promise<PreCollectedImportsData>}
  */
 export async function collectImports({

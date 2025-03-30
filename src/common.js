@@ -1,5 +1,5 @@
 import * as path from "https://deno.land/std@0.145.0/path/mod.ts";
-import { createEmptyImportMap, parseImportMap } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
+import { createEmptyImportMap, parseImportMap } from "https://deno.land/x/import_maps@v0.2.0/mod.js";
 
 /**
  * Creates the types directory and populates it with some default files such
@@ -150,7 +150,7 @@ export async function loadImportMap(importMap, cwd) {
 	let userImportMap;
 	if (userImportMapPath) {
 		const userImportMapStr = await Deno.readTextFile(userImportMapPath);
-		/** @type {import("https://deno.land/x/import_maps@v0.1.1/mod.js").ImportMapData} */
+		/** @type {import("https://deno.land/x/import_maps@v0.2.0/mod.js").ImportMapData} */
 		const userImportMapJson = JSON.parse(userImportMapStr);
 		const baseUrl = new URL(path.toFileUrl(userImportMapPath));
 		userImportMap = parseImportMap(userImportMapJson, baseUrl);

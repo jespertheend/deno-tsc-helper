@@ -9,7 +9,7 @@ import {
 } from "https://deno.land/std@0.145.0/path/mod.ts";
 import { ensureDir, ensureFile } from "https://deno.land/std@0.145.0/fs/mod.ts";
 import * as streams from "https://deno.land/std@0.167.0/streams/mod.ts";
-import { createEmptyImportMap, resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.1.1/mod.js";
+import { createEmptyImportMap, resolveModuleSpecifier } from "https://deno.land/x/import_maps@v0.2.0/mod.js";
 import { collectImports } from "./src/collectImports.js";
 import { createTypesDir, fillOptionDefaults, loadImportMap, sanitizeFileName } from "./src/common.js";
 import { blue, yellow } from "https://deno.land/std@0.157.0/fmt/colors.ts";
@@ -482,7 +482,7 @@ export {};
 
 	logger.info("Vendoring collected import urls.");
 
-	/** @type {import("https://deno.land/x/import_maps@v0.1.1/mod.js").ImportMapData} */
+	/** @type {import("https://deno.land/x/import_maps@v0.2.0/mod.js").ImportMapData} */
 	let temporaryImportMap = {};
 	if (userImportMapPath) {
 		const text = await Deno.readTextFile(userImportMapPath);
